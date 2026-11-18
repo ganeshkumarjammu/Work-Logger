@@ -1,0 +1,64 @@
+filters:
+  and:
+    - 'type == "task"'
+    - not:
+        - 'file.inFolder("90 Templates")'
+properties:
+  file.name:
+    displayName: Task
+  project:
+    displayName: Project
+  status:
+    displayName: Status
+  due:
+    displayName: Due
+  est_mins:
+    displayName: Estimate (min)
+  actual_mins:
+    displayName: Spent (min)
+  last_worked:
+    displayName: Last worked
+  done:
+    displayName: Finished
+views:
+  - type: table
+    name: Open
+    filters:
+      and:
+        - 'status != "done"'
+    groupBy:
+      property: note.status
+      direction: ASC
+    order:
+      - file.name
+      - project
+      - due
+      - est_mins
+      - actual_mins
+      - last_worked
+  - type: table
+    name: By project
+    filters:
+      and:
+        - 'status != "done"'
+    groupBy:
+      property: note.project
+      direction: ASC
+    order:
+      - file.name
+      - status
+      - due
+      - actual_mins
+  - type: table
+    name: Finished
+    filters:
+      and:
+        - 'status == "done"'
+    order:
+      - file.name
+      - project
+      - done
+      - est_mins
+      - actual_mins
+    summaries:
+      actual_mins: Sum

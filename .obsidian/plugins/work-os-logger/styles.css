@@ -1,0 +1,54 @@
+/* Work OS Logger — uses Obsidian's theme variables so it follows light, dark and custom themes. */
+.wos-board { display: flex; flex-direction: column; gap: 12px; margin: 4px 0 12px; font-variant-numeric: tabular-nums; }
+.wos-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.wos-tile, .wos-panel {
+  background: var(--background-secondary); border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m, 8px); padding: 12px 14px; min-width: 0;
+}
+.wos-tile-label, .wos-panel-title { font-size: var(--font-ui-smaller, 12px); color: var(--text-muted); letter-spacing: 0.02em; }
+.wos-tile-value { font-size: 1.55em; font-weight: 600; line-height: 1.25; color: var(--text-normal); }
+.wos-tile-sub { font-size: var(--font-ui-smaller, 12px); color: var(--text-muted); line-height: 1.35; }
+.wos-tile.wos-attention { border-color: var(--interactive-accent); }
+.wos-meter { height: 6px; border-radius: 3px; background: var(--background-modifier-border); margin: 8px 0 6px; overflow: hidden; }
+.wos-meter-fill { height: 100%; border-radius: 3px; background: var(--interactive-accent); }
+
+.wos-lower { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.wos-panel-title { margin-bottom: 8px; }
+.wos-panel-title.wos-gap { margin-top: 14px; }
+.wos-chart { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; align-items: end; }
+.wos-col { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.wos-col-value { font-size: 10px; color: var(--text-muted); height: 14px; white-space: nowrap; }
+.wos-col-track { width: 100%; max-width: 28px; height: 84px; display: flex; align-items: flex-end; background: var(--background-modifier-hover); border-radius: 4px; }
+.wos-col-bar { width: 100%; border-radius: 4px; background: var(--text-faint); min-height: 0; }
+.wos-col.is-today .wos-col-bar { background: var(--interactive-accent); }
+.wos-col-label { font-size: var(--font-ui-smaller, 12px); color: var(--text-muted); }
+.wos-col.is-today .wos-col-label { color: var(--text-normal); font-weight: 600; }
+
+.wos-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(40px, 1fr) 62px; gap: 8px; align-items: center; padding: 3px 0; }
+.wos-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wos-row-track { height: 6px; border-radius: 3px; background: var(--background-modifier-hover); }
+.wos-row-bar { height: 100%; border-radius: 3px; background: var(--interactive-accent); }
+.wos-row-value, .wos-empty, .wos-done { font-size: var(--font-ui-small, 13px); color: var(--text-muted); }
+.wos-row-value { text-align: right; }
+.wos-done { color: var(--text-normal); padding: 2px 0; }
+
+/* Menu */
+.wos-menu { display: flex; flex-direction: column; gap: 6px; }
+.wos-menu-status {
+  font-weight: 600; padding: 10px 12px; border-radius: var(--radius-m, 8px);
+  background: var(--background-secondary); border: 1px solid var(--background-modifier-border);
+}
+.wos-menu-group { font-size: var(--font-ui-smaller, 12px); color: var(--text-muted); margin-top: 8px; }
+.wos-menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.wos-menu button.wos-menu-item {
+  display: flex; align-items: center; gap: 10px; justify-content: flex-start; text-align: left;
+  height: auto; min-height: 44px; padding: 8px 10px; white-space: normal; cursor: pointer;
+}
+.wos-key {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+  border-radius: 4px; font-family: var(--font-monospace); font-size: 12px; font-weight: 600;
+  background: var(--background-primary); border: 1px solid var(--background-modifier-border); color: var(--text-normal);
+}
+.wos-menu-text { display: flex; flex-direction: column; min-width: 0; }
+.wos-menu-hint { font-size: var(--font-ui-smaller, 12px); color: var(--text-muted); }
+.wos-menu-foot { font-size: var(--font-ui-smaller, 12px); color: var(--text-faint); margin-top: 6px; }

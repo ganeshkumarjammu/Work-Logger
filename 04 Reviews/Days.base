@@ -1,0 +1,21 @@
+filters:
+  and:
+    - 'type == "daily"'
+    - not:
+        - 'file.inFolder("90 Templates")'
+properties:
+  file.name:
+    displayName: Day
+  mins_logged:
+    displayName: Minutes logged
+  sessions:
+    displayName: Sessions
+views:
+  - type: table
+    name: All days
+    order:
+      - file.name
+      - mins_logged
+      - sessions
+    summaries:
+      mins_logged: Sum

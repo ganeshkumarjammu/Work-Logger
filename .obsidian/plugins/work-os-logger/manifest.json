@@ -1,0 +1,9 @@
+{
+  "id": "work-os-logger",
+  "name": "Work OS Logger",
+  "version": "3.2.0",
+  "minAppVersion": "1.4.4",
+  "description": "One menu for timing, tasks, Inbox, meetings and reports. All numbers are rebuilt from the notes, so the vault syncs cleanly between devices.",
+  "author": "Work OS",
+  "isDesktopOnly": false
+}

@@ -1,0 +1,20 @@
+filters:
+  and:
+    - 'type == "meeting"'
+    - not:
+        - 'file.inFolder("90 Templates")'
+properties:
+  file.name:
+    displayName: Meeting
+  actual_mins:
+    displayName: Minutes
+views:
+  - type: table
+    name: By meeting
+    groupBy:
+      property: note.series
+      direction: ASC
+    order:
+      - file.name
+      - date
+      - actual_mins

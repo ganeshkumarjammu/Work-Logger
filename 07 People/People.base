@@ -1,0 +1,15 @@
+filters:
+  and:
+    - 'type == "person"'
+    - not:
+        - 'file.inFolder("90 Templates")'
+properties:
+  file.name:
+    displayName: Person
+views:
+  - type: table
+    name: Everyone
+    order:
+      - file.name
+      - role
+      - team

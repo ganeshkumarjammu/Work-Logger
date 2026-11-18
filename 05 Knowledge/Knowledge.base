@@ -1,0 +1,32 @@
+filters:
+  and:
+    - or:
+        - 'type == "issue"'
+        - 'type == "howto"'
+    - not:
+        - 'file.inFolder("90 Templates")'
+properties:
+  file.name:
+    displayName: Note
+  time_spent_mins:
+    displayName: Time it cost (min)
+views:
+  - type: table
+    name: Issues solved
+    filters:
+      and:
+        - 'type == "issue"'
+    order:
+      - file.name
+      - project
+      - tool
+      - date
+      - time_spent_mins
+  - type: table
+    name: How-tos
+    filters:
+      and:
+        - 'type == "howto"'
+    order:
+      - file.name
+      - date
