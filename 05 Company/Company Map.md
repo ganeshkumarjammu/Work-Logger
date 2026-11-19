@@ -20,7 +20,7 @@ Fill this slowly. One new line a week is enough. Understanding the machine is ho
 |  |  |  |
 
 ## Processes I must follow
-See `06 Company/Processes` — one note each (how a bug moves, how a release happens, how work is reported).
+See `05 Company/Processes` — one note each (how a bug moves, how a release happens, how work is reported).
 
 ## Unwritten rules I have noticed
 - 

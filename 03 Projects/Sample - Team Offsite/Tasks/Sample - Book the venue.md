@@ -13,7 +13,7 @@ done: 2026-01-06
 ---
 # Sample - Book the venue
 
-> Menu → S starts and stops the timer · Menu → D when finished · follow the 7 steps in order.
+> Menu → **E** when you move to the next step · **I** if interrupted · **S** to stop · **V** to save copied text · **D** when finished. Fill the 7 steps in order. Every step and its time is listed at the bottom, under Time Log.
 
 ## 1 Understand
 **Asked (their words):** Find and book a place for the offsite on the 30th, close to the office, inside the budget.
@@ -22,7 +22,7 @@ done: 2026-01-06
 - [x] Cost is inside the budget
 
 ## 2 Gather
-Copy any related message, then press Menu → V: it is saved in the project's Info & Messages.
+Write or paste here everything you gather for this task: messages, AI answers, notes, links. Shortcut: copy it, then Menu → V while this note is open; it is added right here with the date and where it came from.
 - Links: venue quote
 
 ## 3 Plan
@@ -35,7 +35,7 @@ Remaining steps:
 - [x] Book and pay the deposit
 
 ## 4 Do
-What I tried → what happened
+What I tried → what happened (one line each; the step times are logged by Menu → E)
 - Asked three venues → only one free on the 30th
 - Asked for early-booking price → 10% off if booked this week
 
@@ -55,5 +55,6 @@ What I tried → what happened
 5. I learned: fix the date before comparing options.
 
 ## Time Log
-- 2026-01-05 10:00-10:45 [mins:: 45]
-- 2026-01-06 09:30-10:00 [mins:: 30]
+- 2026-01-05 10:00-10:15 [mins:: 15] 🧭 Wrote date, headcount and budget in one line
+- 2026-01-05 10:15-10:45 [mins:: 30] 💬 Asked three venues about the 30th
+- 2026-01-06 09:30-10:00 [mins:: 30] 🔨 Compared and booked, paid the deposit

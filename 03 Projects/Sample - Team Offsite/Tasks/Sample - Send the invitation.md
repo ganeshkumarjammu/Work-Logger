@@ -12,7 +12,7 @@ last_worked: 2026-01-06
 ---
 # Sample - Send the invitation
 
-> Menu → S starts and stops the timer · Menu → D when finished · follow the 7 steps in order.
+> Menu → **E** when you move to the next step · **I** if interrupted · **S** to stop · **V** to save copied text · **D** when finished. Fill the 7 steps in order. Every step and its time is listed at the bottom, under Time Log.
 
 ## 1 Understand
 **Asked (their words):** Invite all 12 people and get a yes or no from each.
@@ -21,7 +21,7 @@ last_worked: 2026-01-06
 - [ ] Every person has answered
 
 ## 2 Gather
-Copy any related message, then press Menu → V: it is saved in the project's Info & Messages.
+Write or paste here everything you gather for this task: messages, AI answers, notes, links. Shortcut: copy it, then Menu → V while this note is open; it is added right here with the date and where it came from.
 - Links: team list
 
 ## 3 Plan
@@ -33,7 +33,7 @@ Remaining steps:
 - [ ] Chase people who have not answered after two days
 
 ## 4 Do
-What I tried → what happened
+What I tried → what happened (one line each; the step times are logged by Menu → E)
 - Drafted the invitation → waiting for the team lead to approve the wording
 
 ## 5 Check
@@ -52,4 +52,4 @@ What I tried → what happened
 5. I learned: 
 
 ## Time Log
-- 2026-01-06 10:15-10:40 [mins:: 25]
+- 2026-01-06 10:15-10:40 [mins:: 25] 🔨 Drafted the invitation

@@ -10,40 +10,10 @@ The vault contains a small add-on called **Work OS Logger**. It is already insid
 
 To use it on your phone as well, follow [[Sync Setup]].
 
-**New here? Do [[Try It First]]**: a 10-minute walk-through using the sample project that comes with the vault.
-
-## 2. One menu, one hotkey
-- **Laptop:** press **Ctrl+Shift+M**. A menu opens. Press one letter.
-- **Phone:** tap the grid icon. Tap the action.
-
-In this vault "Menu → S" means: open the menu, press S.
+## 2. Learn it
+Read [[How To Use]]: 10 minutes, with a full example, then practise once.
 
 Ctrl+Shift+M is the only hotkey the add-on sets. A few seconds after Obsidian starts, the add-on checks whether any other command uses the same key and warns you if one does (Menu → K runs the check again). To change the key: Settings → Hotkeys → search "Work OS".
-
-### Your day
-
-**Morning (2 minutes)**
-- Menu → O opens today's note. Write the One Thing and your Top 3.
-
-**Working**
-- Something lands on you (a request, a thought) → **Menu → I**, one line, Enter. Do not stop your task.
-- New piece of work → **Menu → T**, type its name, Enter. The timer is already running.
-- Going back to an earlier task → **Menu → R**, pick it.
-- Stopping, or switching → **Menu → S** (or just start the next thing: the old one stops and is logged by itself).
-- Forgot to start the timer → **Menu → L**, pick how long.
-- Someone sends you something about the project → copy it → **Menu → V**.
-- Meeting → **Menu → M**, pick the meeting.
-- Task done → **Menu → D**.
-
-You never type a time or a duration. Each stop writes one line in the task's own **Time Log** and one line in today's daily note, and adds the minutes to the task's `actual_mins`.
-
-**End of day (3 minutes)**
-- **Menu → P** → clear the Inbox: each item becomes a task, a to-do, project info, or is deleted.
-- **Menu → U** → paste the status into your chat. Add "Blocked" and "Next" if needed.
-- Tick the Shutdown list in the daily note.
-
-**End of week**
-- **Menu → W** → the weekly report fills in its own numbers. Write Done / In progress / Blocked / Next week and take it to the meeting.
 
 ## 3. What a project contains
 **Menu → N** creates a folder with:
@@ -72,12 +42,11 @@ See [[Situations]] for what to press in any real situation, [[Task Procedure]] f
 |---|---|
 | 00 Home | Where do I start? How am I doing? |
 | 00 Inbox | What landed on me that I have not decided about yet? |
-| 01 Daily | What did I do today, and for how long? |
+| 01 Journal | Daily, weekly, monthly, quarterly and yearly notes, all in this one folder. What did I do, and how is it going? |
 | 02 Tasks | What small things do I owe? |
 | 03 Projects | Where does each project stand? |
-| 04 Reviews | Am I progressing? Can I prove it? |
-| 05 Knowledge | How do I do this faster next time? |
-| 06 Company | How does this company work? |
-| 07 People | Who does what? What did we agree? |
-| 08 Growth | Am I getting better? |
-| 09 Founder Lab | What am I learning about building a business? |
+| 04 Knowledge | How do I do this faster next time? |
+| 05 Company | How does this company work? |
+| 06 People | Who does what? What did we agree? |
+| 07 Growth | Am I getting better? Proof of Work, skills, lessons |
+| 08 Insights | What have I noticed about how work gets done, and what would I improve? |

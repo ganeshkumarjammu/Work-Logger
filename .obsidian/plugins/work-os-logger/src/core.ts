@@ -11,7 +11,25 @@ export interface DayStat {
   meetingMins: number;
   byProject: Record<string, number>;
   byTask: Record<string, TaskStat>;
+  byKind: Record<string, number>;
   done: string[];
+}
+
+/** What kind of time it was. Picked with one tap when the timer starts; written as the emoji on each log line. */
+export const KINDS = [
+  { id: "work", emoji: "🔨", label: "Doing the work" },
+  { id: "learn", emoji: "📚", label: "Learning / research" },
+  { id: "talk", emoji: "💬", label: "Messages and calls" },
+  { id: "meeting", emoji: "📅", label: "Meeting" },
+  { id: "plan", emoji: "🧭", label: "Planning" },
+  { id: "admin", emoji: "📋", label: "Updates and admin" },
+  { id: "interrupt", emoji: "⚡", label: "Interruption" },
+] as const;
+export type KindId = (typeof KINDS)[number]["id"];
+export const INTERRUPTIONS = "Interruptions";
+
+export function kindOf(id: string | undefined): (typeof KINDS)[number] {
+  return KINDS.find((k) => k.id === id) ?? KINDS[0];
 }
 
 export type Days = Record<string, DayStat>;
@@ -23,7 +41,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const LEVEL_MINS = 600; // 10 focused hours per level
 
 export function emptyDay(): DayStat {
-  return { total: 0, sessions: 0, meetingMins: 0, byProject: {}, byTask: {}, done: [] };
+  return { total: 0, sessions: 0, meetingMins: 0, byProject: {}, byTask: {}, byKind: {}, done: [] };
 }
 
 export function fmtDur(mins: number): string {
@@ -157,13 +175,14 @@ export interface WeekSummary {
   meetingMins: number;
   byProject: Record<string, number>;
   byTask: Record<string, TaskStat>;
+  byKind: Record<string, number>;
   done: string[];
   perDay: { date: string; total: number }[];
 }
 
 export function mergeWeek(days: Days, ws: string): WeekSummary {
   const out: WeekSummary = {
-    total: 0, sessions: 0, meetingMins: 0, byProject: {}, byTask: {}, done: [], perDay: [],
+    total: 0, sessions: 0, meetingMins: 0, byProject: {}, byTask: {}, byKind: {}, done: [], perDay: [],
   };
   for (let i = 0; i < 7; i++) {
     const date = addDays(ws, i);
@@ -174,6 +193,7 @@ export function mergeWeek(days: Days, ws: string): WeekSummary {
     out.sessions += d.sessions;
     out.meetingMins += d.meetingMins ?? 0;
     for (const [p, m] of Object.entries(d.byProject)) out.byProject[p] = (out.byProject[p] ?? 0) + m;
+    for (const [k, m] of Object.entries(d.byKind ?? {})) out.byKind[k] = (out.byKind[k] ?? 0) + m;
     for (const [t, s] of Object.entries(d.byTask)) {
       const cur = out.byTask[t] ?? { mins: 0, project: s.project };
       cur.mins += s.mins;
@@ -292,15 +312,23 @@ export function parseDaily(content: string, projects: Set<string>): DayStat {
     const m = /^\s*- \d\d:\d\d-\d\d:\d\d \[mins:: (\d+)\]\s*(.*)$/.exec(lines[i]);
     if (!m) continue;
     const mins = parseInt(m[1], 10);
-    const rest = m[2];
-    const meeting = rest.startsWith(MEETING_MARK);
+    let rest = m[2].trim();
+    let kind: string = "work";
+    for (const k of KINDS) {
+      if (rest.startsWith(k.emoji)) {
+        kind = k.id;
+        rest = rest.slice(k.emoji.length).trim();
+        break;
+      }
+    }
     const head = rest.split(" — ")[0];
     const links = Array.from(head.matchAll(/\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g)).map((x) => x[1]);
-    const title = links[0] ?? "General work";
-    const pKey = links[1] ?? (meeting ? MEETINGS : projects.has(title) ? title : NO_PROJECT);
+    const title = links[0] ?? (head.trim() || "General work");
+    const pKey = links[1] ?? (kind === "meeting" ? MEETINGS : kind === "interrupt" ? INTERRUPTIONS : projects.has(title) ? title : NO_PROJECT);
     day.total += mins;
     day.sessions += 1;
-    if (meeting) day.meetingMins += mins;
+    if (kind === "meeting") day.meetingMins += mins;
+    day.byKind[kind] = (day.byKind[kind] ?? 0) + mins;
     day.byProject[pKey] = (day.byProject[pKey] ?? 0) + mins;
     const t = (day.byTask[title] ??= { mins: 0, project: pKey });
     t.mins += mins;
@@ -345,6 +373,7 @@ export interface Score {
   inbox: number;
   last7: { label: string; mins: number; isToday: boolean }[];
   projects: [string, number][];
+  kinds: [string, number][];
   doneToday: string[];
 }
 
@@ -373,8 +402,16 @@ export function scoreData(days: Days, today: string, goalMins: number, skipWeeke
       return { label: DAY_NAMES[dow(d)], mins: days[d]?.total ?? 0, isToday: d === today };
     }),
     projects: sortedEntries(week.byProject, (v) => v),
+    kinds: sortedEntries(week.byKind, (v) => v).map(([k, m]) => [`${kindOf(k).emoji} ${kindOf(k).label}`, m] as [string, number]),
     doneToday: t.done,
   };
+}
+
+export interface Back {
+  path: string;
+  title: string;
+  activity: string;
+  label: string;
 }
 
 export interface Timer {
@@ -382,18 +419,26 @@ export interface Timer {
   title: string;
   start: number;
   kind: "work" | "meeting";
+  activity?: string;
+  label?: string;
+  back?: Back | null;
 }
 
 /** The running timer lives in a note so it follows you between devices. */
 export function buildNow(t: Timer | null): string {
   const foot = "\n\n> Written by Work OS so the running timer follows you between laptop and phone. Do not edit by hand.\n";
   if (!t) return `---\ntype: timer\n---\n# Now\n\nNothing is being timed.${foot}`;
-  return [
+  const k = kindOf(t.activity ?? (t.kind === "meeting" ? "meeting" : "work"));
+  const fm = [
     "---", "type: timer",
     `timer_path: ${JSON.stringify(t.path)}`, `timer_title: ${JSON.stringify(t.title)}`,
     `timer_start: ${t.start}`, `timer_kind: ${t.kind}`,
-    "---", "# Now", "", `▶ Working on [[${t.title}]] since ${hhmm(new Date(t.start))} (${ymd(new Date(t.start))}).`,
-  ].join("\n") + foot;
+    `timer_activity: ${k.id}`, `timer_label: ${JSON.stringify(t.label ?? "")}`,
+  ];
+  if (t.back) fm.push(`timer_back: ${JSON.stringify(JSON.stringify(t.back))}`);
+  fm.push("---", "# Now", "", `▶ ${k.emoji} ${t.label ? `${t.label} · ` : ""}[[${t.title}]] since ${hhmm(new Date(t.start))} (${ymd(new Date(t.start))}).`);
+  if (t.back) fm.push("", `Paused for this: [[${t.back.title}]]. Stopping this timer offers to go back to it.`);
+  return fm.join("\n") + foot;
 }
 
 export function parseNow(content: string): Timer | null {
@@ -410,8 +455,81 @@ export function parseNow(content: string): Timer | null {
     const path = String(JSON.parse(rawPath));
     const rawTitle = get("timer_title");
     const title = rawTitle ? String(JSON.parse(rawTitle)) : path;
-    return { path, title, start, kind: get("timer_kind") === "meeting" ? "meeting" : "work" };
+    const kind = get("timer_kind") === "meeting" ? "meeting" : "work";
+    const activity = get("timer_activity") ?? (kind === "meeting" ? "meeting" : "work");
+    const rawLabel = get("timer_label");
+    const label = rawLabel ? String(JSON.parse(rawLabel)) : "";
+    const rawBack = get("timer_back");
+    const back = rawBack ? (JSON.parse(String(JSON.parse(rawBack))) as Back) : null;
+    return { path, title, start, kind, activity, label, back };
   } catch {
     return null;
   }
+}
+
+/** Total of the [mins:: N] lines under "## Time Log" in one note. */
+export function sumTimeLog(content: string): number {
+  const lines = content.split("\n");
+  const start = lines.findIndex((l) => l.trim() === "## Time Log");
+  if (start === -1) return 0;
+  let total = 0;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (HEADING.test(lines[i])) break;
+    const m = /^\s*- .*\[mins:: (\d+)\]/.exec(lines[i]);
+    if (m) total += parseInt(m[1], 10);
+  }
+  return total;
+}
+
+export interface CheckItem {
+  line: number;
+  text: string;
+  done: boolean;
+  heading: string;
+  indent: number;
+}
+
+/** Every checkbox line in a note, with the heading it sits under. Skips fenced code blocks and empty boxes. */
+export function parseCheckboxes(content: string): CheckItem[] {
+  const out: CheckItem[] = [];
+  let heading = "";
+  let inCode = false;
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^\s*(```|~~~)/.test(l)) {
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) continue;
+    const h = /^#{1,6}\s+(.*)$/.exec(l);
+    if (h) {
+      heading = h[1].trim();
+      continue;
+    }
+    const m = /^(\s*)(?:[-*+]|\d+[.)])\s+\[([ xX])\]\s+(\S.*)$/.exec(l);
+    if (m) out.push({ line: i, text: m[3].trim(), done: m[2] !== " ", heading, indent: m[1].length });
+  }
+  return out;
+}
+
+/** Ticks or unticks the checkbox on one line, only if that line still holds the same text. */
+export function setCheckbox(content: string, line: number, text: string, done: boolean): string | null {
+  const lines = content.split("\n");
+  const l = lines[line];
+  if (l === undefined) return null;
+  const m = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\]\s+)(\S.*)$/.exec(l);
+  if (!m || m[4].trim() !== text) return null;
+  lines[line] = `${m[1]}${done ? "x" : " "}${m[3]}${m[4]}`;
+  return lines.join("\n");
+}
+
+/** "Call [[Sam|him]] about [[Plan]]" -> "Call him about Plan" */
+export function plainText(s: string): string {
+  return s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2").replace(/\[\[([^\]]+)\]\]/g, "$1").replace(/\*\*|__/g, "");
+}
+
+export function dueOf(s: string): string | null {
+  const m = /📅\s*(\d{4}-\d\d-\d\d)/.exec(s);
+  return m ? m[1] : null;
 }

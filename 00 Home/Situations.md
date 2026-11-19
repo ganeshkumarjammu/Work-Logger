@@ -5,8 +5,9 @@ What to do when real life happens. "Menu" means: Ctrl+Shift+M on the laptop, the
 ## Things land on me
 | Situation | Do this |
 |---|---|
-| Someone asks me for something while I am busy | **Menu → I**, type one line, Enter. Keep working |
-| I remember something unrelated | **Menu → I** |
+| Someone asks me for something I can do later | **Menu → I** → *Note it for later*, type one line. Keep working |
+| Someone or something needs me right now | **Menu → I** → *Deal with it now*. Your task pauses; the interruption is timed. When done: **Menu → S** → *Back to* your task |
+| I remember something unrelated | **Menu → I** → *Note it for later* |
 | Someone sends a message about a project | Copy it → **Menu → V** |
 | A message arrives and I do not know which project it belongs to | Copy it → **Menu → V** → choose "Inbox (decide later)" |
 | The Inbox is filling up | **Menu → P** once a day (it is on the Shutdown list). Each item becomes: do now / task for later / small to-do / project info / delete |
@@ -16,6 +17,11 @@ What to do when real life happens. "Menu" means: Ctrl+Shift+M on the laptop, the
 | Situation | Do this |
 |---|---|
 | New piece of work | **Menu → T**, type the name |
+| I want the time of each step, not just the whole task | **Menu → E** each time you move to the next step; tap what you are doing next. **Menu → S** after the last one |
+| I got an answer from ChatGPT or Claude | Open the task → copy the answer → **Menu → V** → AI answer. It lands in the task under 2 Gather |
+| I want to see every task and checkbox together | **Menu → A**, or [[Home]] |
+| I logged something and cannot find it | Click the message in the top-right corner; it opens the exact place. Or open the task: Time Log is at the bottom |
+| I am waiting on someone for this task | Change `status: doing` to `status: waiting` at the top of the task note |
 | Going back to a task from earlier or yesterday | **Menu → R**, pick it |
 | Urgent thing interrupts my task | **Menu → T** for the urgent thing. The old task is stopped and logged by itself. Afterwards **Menu → R** to go back |
 | A 2-minute job not worth a note | Just do it. If you want it counted: **Menu → O** (today's note) then **Menu → S**; it is logged as "General work" |
@@ -47,7 +53,7 @@ What to do when real life happens. "Menu" means: Ctrl+Shift+M on the laptop, the
 |---|---|
 | End of day status | **Menu → U**, paste. Add Blocked / Next in today's note first if you have any |
 | Manager asks "what are you working on?" | **Menu → U** |
-| Year-end review | [[Proof of Work]] plus the weekly reports in `04 Reviews/Weekly` |
+| Year-end review | [[Proof of Work]] plus the weekly reports in `01 Journal` |
 | Asked to explain a task | Open the task → "7 Explain it" |
 | Asked to explain a project | Open its **Explain It** note |
 

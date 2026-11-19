@@ -1,0 +1,10 @@
+{
+  "showGettingStartedBanner": false,
+  "hasMigratedDailyNoteSettings": true,
+  "hasMigratedWeeklyNoteSettings": true,
+  "daily": { "enabled": true, "format": "YYYY-MM-DD", "folder": "01 Journal", "template": "90 Templates/Daily" },
+  "weekly": { "enabled": true, "format": "GGGG-[W]WW", "folder": "01 Journal", "template": "90 Templates/Weekly Review" },
+  "monthly": { "enabled": true, "format": "YYYY-MM", "folder": "01 Journal", "template": "90 Templates/Monthly Review" },
+  "quarterly": { "enabled": true, "format": "YYYY-[Q]Q", "folder": "01 Journal", "template": "90 Templates/Quarterly Review" },
+  "yearly": { "enabled": true, "format": "YYYY", "folder": "01 Journal", "template": "90 Templates/Yearly Review" }
+}

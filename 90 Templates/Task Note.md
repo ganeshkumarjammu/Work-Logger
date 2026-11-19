@@ -10,7 +10,7 @@ actual_mins: 0
 ---
 # {{title}}
 
-> Menu → S starts and stops the timer · Menu → D when finished · follow the 7 steps in order.
+> Menu → **E** when you move to the next step · **I** if interrupted · **S** to stop · **V** to save copied text · **D** when finished. Fill the 7 steps in order. Every step and its time is listed at the bottom, under Time Log.
 
 ## 1 Understand
 **Asked (their words):** {{asked}}
@@ -18,7 +18,7 @@ actual_mins: 0
 - [ ] 
 
 ## 2 Gather
-Copy any related message, then press Menu → V: it is saved in the project's Info & Messages.
+Write or paste here everything you gather for this task: messages, AI answers, notes, links. Shortcut: copy it, then Menu → V while this note is open; it is added right here with the date and where it came from.
 - Links: 
 
 ## 3 Plan
@@ -29,7 +29,7 @@ Remaining steps:
 - [ ] 
 
 ## 4 Do
-What I tried → what happened
+What I tried → what happened (one line each; the step times are logged by Menu → E)
 - 
 
 ## 5 Check

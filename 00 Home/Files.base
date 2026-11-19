@@ -1,0 +1,45 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+    - not:
+        - 'file.inFolder("90 Templates")'
+        - 'file.inFolder(".obsidian")'
+properties:
+  file.name:
+    displayName: Note
+  type:
+    displayName: Type
+  created:
+    displayName: Created
+  file.folder:
+    displayName: Folder
+  project:
+    displayName: Project
+  status:
+    displayName: Status
+  file.mtime:
+    displayName: Last changed
+views:
+  - type: table
+    name: Newest first
+    order:
+      - file.name
+      - type
+      - created
+      - file.folder
+      - project
+      - status
+      - file.mtime
+    sort:
+      - property: created
+        direction: DESC
+  - type: table
+    name: By type
+    groupBy:
+      property: note.type
+      direction: ASC
+    order:
+      - file.name
+      - created
+      - file.folder
+      - file.mtime

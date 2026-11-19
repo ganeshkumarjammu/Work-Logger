@@ -9,6 +9,7 @@ Small tasks live here as checkboxes. Anything bigger gets its own note with Menu
 - [ ] 
 
 ## Next (this week)
+- [ ] Order two extra chairs for the offsite (sample)
 - [ ] 
 
 ## Waiting on someone

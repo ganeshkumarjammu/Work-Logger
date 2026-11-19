@@ -4,32 +4,51 @@ type: dashboard
 # Home
 
 ```work-os
+If you can read this line, the Work OS add-on is not running, so the scoreboard cannot be drawn. Fix: Settings → Community plugins → turn on community plugins → switch on Work OS Logger. If it is already on, switch it off and on again (or restart Obsidian) after copying in a new version.
 ```
 
-## One menu for everything
-**Laptop:** press **Ctrl+Shift+M**, then one letter. **Phone:** tap the Work OS icon (grid), then tap the action.
+## Daily keys
+**Menu** = press **Ctrl+Shift+M** on the laptop, or tap the **grid icon** on the phone. Then one letter:
 
-| Letter | Action | Letter | Action |
-|---|---|---|---|
-| **S** | Start / stop the timer on the open note | **I** | Capture one line to the [[Inbox]] |
-| **T** | New task (timer starts) | **P** | Clear the Inbox |
-| **R** | Resume an open task | **V** | Save copied text to a project or the Inbox |
-| **D** | Finish this task | **U** | Copy today's status |
-| **M** | Start a meeting | **W** | Build this week's report |
-| **L** | Log time I forgot | **O** | Today's note |
-| **Z** | Undo the last time log | **H** | Home |
-| **N** | New project | **K** | Check hotkey conflicts |
+| Key | When |
+|---|---|
+| **T** | You start new work (type its name, then tap what you are doing) |
+| **E** | You move on to the next step |
+| **I** | Something interrupts you |
+| **S** | You stop or take a break |
+| **V** | You copied a message or an AI answer to keep |
+| **D** | The task is finished |
+| **U** | End of day: copy your status |
+| **A** | See all tasks and checkboxes in one list |
 
-Only Ctrl+Shift+M is a hotkey. The letters work only while the menu is open, so they cannot clash with any other command. Not sure what to do? See [[Situations]].
+New here? Read [[How To Use]], then do the samples:
+- [[Sample - Tour]]: see a filled-in vault and try every key in 5 minutes (sample)
 
-## Open tasks
-![[Task Board.base#Open]]
+> [!note]- All other keys
+> | Key | Action |
+> |---|---|
+> | **R** | Resume a task you started earlier |
+> | **B** | Back to the task paused by an interruption |
+> | **F** | File history |
+> | **L** | Log time you forgot to track |
+> | **Z** | Undo the last time log |
+> | **M** | Start a meeting |
+> | **P** | Clear the Inbox |
+> | **W** | Build this week's report |
+> | **O** | Today's note |
+> | **H** | Home |
+> | **N** | New project |
+> | **K** | Check hotkey conflicts |
+> | **X** | Remove the sample data |
+
+## All tasks
+Every open task note and every unticked checkbox in the vault. Tick here or click to jump to it. Full page: [[All Tasks]].
+
+```work-os-tasks
+If you can read this line, the Work OS add-on is not running, so the task list cannot be drawn. Fix: Settings → Community plugins → turn on community plugins → switch on Work OS Logger. If it is already on, switch it off and on again (or restart Obsidian) after copying in a new version.
+```
 
 ## Go to
-- [[Try It First]]: a 10-minute walk-through with the sample project (sample)
+[[How To Use]] · [[All Tasks]] · [[File History]] · [[Files.base|Files]] · [[Situations]] · [[Inbox]] · [[Tasks]] · [[Task Board.base|Task Board]] · [[Projects.base|Projects]] · [[Proof of Work]] · [[Sync Setup]]
 
-[[Inbox]] · [[Tasks]] · [[Task Board.base|Task Board]] · [[Projects.base|Projects]] · [[Days.base|Days]] · [[Meetings.base|Meetings]] · [[People.base|People]] · [[Knowledge.base|Knowledge]]
-
-[[Proof of Work]] · [[Task Procedure]] · [[Situations]] · [[Sync Setup]] · [[Habit Engine]] · [[Focus Rules]]
-
-[[Company Map]] · [[Company Goals]] · [[Skills Map]] · [[Business Observations]] · [[Glossary]]
+More: [[Days.base|Days]] · [[Meetings.base|Meetings]] · [[People.base|People]] · [[Knowledge.base|Knowledge]] · [[Task Procedure]] · [[Habit Engine]] · [[Focus Rules]] · [[Company Map]] · [[Company Goals]] · [[Skills Map]] · [[Work Observations]] · [[Glossary]]

@@ -2,11 +2,11 @@ import {
   App, FuzzySuggestModal, Modal, Notice, Platform, Plugin, PluginSettingTab, Setting, TFile, TFolder,
 } from "obsidian";
 import {
-  Days, MEETING_MARK, Timer, buildNow, buildStatus, buildWeekBlock, emptyDay, fmtDur, hhmm, inboxItems,
+  Back, Days, INTERRUPTIONS, KINDS, Timer, kindOf, buildNow, buildStatus, buildWeekBlock, emptyDay, fmtDur, hhmm, inboxItems,
   insertUnderHeading, isoWeekLabel, level, parseDaily, parseNow, removeExactLine, replaceAutoBlock, safeName,
-  scoreData, streak, stripStamp, totalAll, weekStart, ymd,
+  scoreData, streak, stripStamp, sumTimeLog, parseCheckboxes, setCheckbox, plainText, dueOf, totalAll, weekStart, ymd,
 } from "./core";
-import { MenuItem, renderMenu, renderScore } from "./ui";
+import { MenuItem, TaskGroup, TaskRow, renderActivity, renderMenu, renderScore, renderTaskList } from "./ui";
 
 const F = {
   home: "00 Home/Home.md",
@@ -14,21 +14,28 @@ const F = {
   inbox: "00 Inbox/Inbox.md",
   archive: "99 Archive",
   now: "00 Home/Now.md",
-  daily: "01 Daily",
+  daily: "01 Journal",
   tasksFile: "02 Tasks/Tasks.md",
   looseTasks: "02 Tasks/Task Notes",
   projects: "03 Projects",
   projectsIndex: "03 Projects/Projects Index.md",
-  weekly: "04 Reviews/Weekly",
-  meetings: "07 People/Meetings",
+  allTasks: "02 Tasks/All Tasks.md",
+  history: "00 Home/File History.md",
+  weekly: "01 Journal",
+  meetings: "06 People/Meetings",
   templates: "90 Templates",
 };
 const TIME_LOG = "## Time Log";
+/** Where journal notes lived in earlier versions; still read, and moved on request. */
+const LEGACY_DAILY = "01 Daily";
+const LEGACY_REVIEWS = ["04 Reviews/Weekly", "04 Reviews/Monthly", "04 Reviews/Quarterly", "04 Reviews/Yearly"];
+const DATE_NAME = /^\d{4}-\d\d-\d\d$/;
 const INBOX_ITEMS = "## Items";
 const OTHER = "Other (type a name)";
 const NONE = "No project";
 const TO_INBOX = "Inbox (decide later)";
 const SAMPLE_MARK = "(sample)";
+const GATHER = "## 2 Gather";
 
 interface Settings {
   dailyGoalMins: number;
@@ -57,6 +64,7 @@ interface TaskOpts {
   start?: boolean;
   open?: boolean;
   asked?: string;
+  ask?: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -78,8 +86,14 @@ const FALLBACK: Record<string, string> = {
   "Weekly Review": `# Week of {{date}}\n\n%% week:start %%\n%% week:end %%\n`,
 };
 
+/** Under 15 seconds counts as nothing; anything longer counts as at least 1 minute. */
+function toMins(ms: number): number {
+  return ms < 15000 ? 0 : Math.max(1, Math.round(ms / 60000));
+}
+
+/** Fills {{name}} and {{name:FORMAT}} placeholders (the second form is what Periodic Notes uses, e.g. {{monday:YYYY-MM-DD}}). */
 function fill(tpl: string, vars: Record<string, string>): string {
-  return tpl.replace(/\{\{(\w+)\}\}/g, (m, k: string) => (k in vars ? vars[k] : m));
+  return tpl.replace(/\{\{(\w+(?::[^}]*)?)\}\}/g, (m, k: string) => (k in vars ? vars[k] : m));
 }
 
 function escapeRe(s: string): string {
@@ -139,6 +153,33 @@ class PickModal<T> extends FuzzySuggestModal<T> {
   }
 }
 
+const PICKABLE = KINDS.filter((k) => k.id !== "interrupt");
+
+/** "What are you doing now?" — tap a kind (no typing needed); a few words are optional. Esc keeps the default. */
+class ActivityModal extends Modal {
+  private picked = false;
+  constructor(app: App, private heading: string, private onPick: (activity: string, label: string) => void, private onSkip: () => void) {
+    super(app);
+  }
+  onOpen(): void {
+    this.titleEl.setText(this.heading);
+    const input = renderActivity(this.contentEl, PICKABLE.map((k) => ({ emoji: k.emoji, label: k.label })), "What exactly? (optional, e.g. read the error logs)", (i, text) => {
+      if (this.picked) return;
+      this.picked = true;
+      this.close();
+      this.onPick(PICKABLE[i].id, text);
+    });
+    window.setTimeout(() => input.focus(), 0);
+  }
+  onClose(): void {
+    this.contentEl.empty();
+    if (!this.picked) {
+      this.picked = true;
+      this.onSkip();
+    }
+  }
+}
+
 class ForgotModal extends Modal {
   constructor(app: App, private title: string, private mins: number, private onPick: (mins: number | null) => void) {
     super(app);
@@ -168,7 +209,7 @@ class ForgotModal extends Modal {
 
 /** One menu for everything: a single hotkey (or one tap on the phone), then a letter. */
 class MenuModal extends Modal {
-  constructor(app: App, private status: string, private items: MenuItem[]) {
+  constructor(app: App, private status: string, private items: MenuItem[], private version = "") {
     super(app);
   }
   onOpen(): void {
@@ -177,7 +218,7 @@ class MenuModal extends Modal {
       this.close();
       item.run();
     };
-    renderMenu(this.contentEl, this.status, this.items, pick);
+    renderMenu(this.contentEl, this.status, this.items, pick, this.version);
     for (const item of this.items) {
       this.scope.register([], item.key, () => {
         pick(item);
@@ -198,6 +239,9 @@ export default class WorkOSLogger extends Plugin {
   private statusEl: HTMLElement | null = null;
   private dayCache = new Map<string, ReturnType<typeof emptyDay>>();
   private boards = new Set<HTMLElement>();
+  private taskLists = new Set<HTMLElement>();
+  private showAll = new WeakMap<HTMLElement, boolean>();
+  private listTimer: number | null = null;
   private refreshTimer: number | null = null;
 
   async onload(): Promise<void> {
@@ -222,9 +266,15 @@ export default class WorkOSLogger extends Plugin {
       this.addCommand({ id: item.id, name: item.label, callback: () => item.run() });
     }
 
+    this.addCommand({ id: "flatten-daily", name: "Move journal notes into 01 Journal", callback: () => void this.flattenDailies() });
+
     this.registerMarkdownCodeBlockProcessor("work-os", (_src, el) => {
       this.boards.add(el);
       void this.paint(el);
+    });
+    this.registerMarkdownCodeBlockProcessor("work-os-tasks", (_src, el) => {
+      this.taskLists.add(el);
+      void this.paintTaskList(el);
     });
 
     this.registerEvent(
@@ -247,12 +297,21 @@ export default class WorkOSLogger extends Plugin {
     this.addSettingTab(new LoggerSettings(this.app, this));
 
     this.app.workspace.onLayoutReady(() => {
+      // registered only now, so the files Obsidian loads at start-up are not reported as new
+      this.registerEvent(this.app.vault.on("create", (file) => {
+        if (file instanceof TFile) window.setTimeout(() => void this.onCreated(file), 1500);
+      }));
       void (async () => {
         await this.loadRunning();
         await this.refreshInbox();
         await this.refreshAll();
         const r = this.running;
         if (r) new Notice(`▶ Timer still running on "${r.title}" since ${hhmm(new Date(r.start))}`);
+        const nested = this.nestedDailies().length;
+        if (nested) {
+          const n = new Notice(`${nested} journal note${nested === 1 ? " is" : "s are"} still in old folders.\nClick here to move them all into ${F.daily}.`, 0);
+          (n as unknown as { noticeEl?: HTMLElement }).noticeEl?.addEventListener("click", () => void this.flattenDailies());
+        }
       })();
       window.setTimeout(() => this.checkHotkeys(true), 4000);
     });
@@ -260,9 +319,10 @@ export default class WorkOSLogger extends Plugin {
 
   /** Something changed on disk, possibly because sync brought it from the other device. */
   private onChanged(path: string): void {
+    if (path.endsWith(".md") && path !== F.now) this.scheduleListRefresh();
     if (path === F.now) void this.loadRunning().then(() => this.renderStatus());
     else if (path.startsWith(F.inboxFolder + "/")) void this.refreshInbox().then(() => this.scheduleRefresh());
-    else if (path.startsWith(F.daily + "/")) {
+    else if (this.isDaily(path)) {
       this.dayCache.delete(path);
       this.scheduleRefresh();
     }
@@ -276,6 +336,177 @@ export default class WorkOSLogger extends Plugin {
     }, 600);
   }
 
+  private scheduleListRefresh(): void {
+    if (this.taskLists.size === 0) return;
+    if (this.listTimer !== null) window.clearTimeout(this.listTimer);
+    this.listTimer = window.setTimeout(() => {
+      this.listTimer = null;
+      void this.paintTaskLists();
+    }, 700);
+  }
+
+  // ---------- all tasks in one place ----------
+
+  async paintTaskLists(): Promise<void> {
+    for (const el of Array.from(this.taskLists)) {
+      if (!el.isConnected) this.taskLists.delete(el);
+      else await this.paintTaskList(el);
+    }
+  }
+
+  async paintTaskList(el: HTMLElement): Promise<void> {
+    try {
+      const showAll = this.showAll.get(el) ?? false;
+      const sections = await this.collectTasks(showAll);
+      const foot = el.ownerDocument.createElement("div");
+      foot.className = "wos-tasks-foot";
+      const b = foot.ownerDocument.createElement("button");
+      b.type = "button";
+      b.textContent = showAll ? "Hide routine checklists" : "Show routine checklists too";
+      b.addEventListener("click", () => {
+        this.showAll.set(el, !showAll);
+        void this.paintTaskList(el);
+      });
+      foot.appendChild(b);
+      renderTaskList(el, this.today(), sections, foot);
+    } catch (e) {
+      console.error("Work OS Logger: task list", e);
+      el.textContent = "The task list could not be drawn. See the developer console.";
+    }
+  }
+
+  /** Open task notes, plus every unticked checkbox in every note. Routine checklists are hidden unless asked for. */
+  async collectTasks(showAll: boolean): Promise<{ title: string; empty: string; groups: TaskGroup[] }[]> {
+    const files = this.app.vault
+      .getMarkdownFiles()
+      .filter((f) => !f.path.startsWith(F.templates + "/") && !f.path.startsWith(F.archive + "/") && f.path !== F.now);
+    const taskNames = new Set(files.filter((f) => this.fm(f).type === "task").map((f) => f.basename));
+    const byProject = new Map<string, TaskRow[]>();
+    const noteGroups: { group: TaskGroup; sort: string }[] = [];
+    const routine = (f: TFile, type: unknown, heading: string) =>
+      (this.isDaily(f.path) && /^(Shutdown|Habits)$/i.test(heading)) ||
+      type === "task" ||
+      type === "project-learning" ||
+      type === "project-explain" ||
+      /^Clean-up$/i.test(heading);
+
+    for (const f of files) {
+      const fm = this.fm(f);
+      if (fm.type === "task" && fm.status !== "done") {
+        const project = this.projectOf(f) ?? NONE;
+        const spent = Number(fm.actual_mins) || 0;
+        const status = String(fm.status ?? "todo");
+        const row: TaskRow = {
+          key: f.path,
+          title: f.basename,
+          sub: `${status}${spent ? ` · ${fmtDur(spent)} spent` : ""}${this.running?.path === f.path ? " · ▶ timing now" : ""}`,
+          due: fm.due ? String(fm.due).slice(0, 10) : null,
+          done: false,
+          onToggle: () => void this.finishTaskFile(f),
+          onOpen: () => void this.openFile(f),
+        };
+        const list = byProject.get(project) ?? [];
+        list.push(row);
+        byProject.set(project, list);
+      }
+      const content = await this.app.vault.cachedRead(f);
+      if (!/\[ \]/.test(content)) continue;
+      const rows: TaskRow[] = [];
+      for (const it of parseCheckboxes(content)) {
+        if (it.done) continue;
+        const only = /^\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/.exec(it.text.trim());
+        if (only && taskNames.has(only[1])) continue; // that task is already listed above
+        if (!showAll && routine(f, fm.type, it.heading)) continue;
+        rows.push({
+          key: `${f.path}:${it.line}`,
+          title: plainText(it.text.replace(/📅\s*\d{4}-\d\d-\d\d/, "").trim()),
+          sub: it.heading,
+          due: dueOf(it.text),
+          done: false,
+          onToggle: () => void this.toggleCheckbox(f, it.line, it.text),
+          onOpen: () => void this.openAt(f, it.line),
+        });
+      }
+      if (rows.length === 0) continue;
+      const daily = this.isDaily(f.path);
+      noteGroups.push({ group: { name: daily ? `Day ${f.basename}` : f.basename, rows }, sort: daily ? `0-${f.basename}` : `1-${f.basename}` });
+    }
+    for (const rows of byProject.values()) rows.sort((a, b) => (a.due ?? "9999") < (b.due ?? "9999") ? -1 : (a.due ?? "9999") > (b.due ?? "9999") ? 1 : a.title < b.title ? -1 : 1);
+    const projectGroups = Array.from(byProject.entries())
+      .sort((a, b) => (a[0] === NONE ? 1 : b[0] === NONE ? -1 : a[0] < b[0] ? -1 : 1))
+      .map(([name, rows]) => ({ name, rows }));
+    // newest day first, then other notes by name
+    noteGroups.sort((a, b) => {
+      const da = a.sort.startsWith("0-"), db = b.sort.startsWith("0-");
+      if (da && db) return a.sort < b.sort ? 1 : -1;
+      if (da !== db) return da ? -1 : 1;
+      return a.sort < b.sort ? -1 : 1;
+    });
+    return [
+      { title: "Task notes (tick = finished)", empty: "No open task notes. Menu → T makes one.", groups: projectGroups },
+      { title: "Checkboxes in your notes", empty: "No open checkboxes anywhere.", groups: noteGroups.map((g) => g.group) },
+    ];
+  }
+
+  async toggleCheckbox(file: TFile, line: number, text: string): Promise<void> {
+    let ok = false;
+    await this.edit(file, (c) => {
+      const next = setCheckbox(c, line, text, true);
+      if (next === null) return c;
+      ok = true;
+      return next;
+    });
+    new Notice(ok ? `✔ Ticked in ${file.basename}: ${plainText(text)}` : "That line was changed meanwhile, so nothing was ticked. The list has been refreshed.");
+    await this.paintTaskLists();
+  }
+
+  async openAt(file: TFile, line: number): Promise<void> {
+    await this.app.workspace.getLeaf(false).openFile(file, { eState: { line } });
+  }
+
+  /** Makes a notice that opens a note (at a line) when clicked. */
+  private noticeOpening(text: string, file: TFile, findLine: string | null, ms = 9000): void {
+    const n = new Notice(`${text}\nClick here to open it.`, ms);
+    const el = (n as unknown as { noticeEl?: HTMLElement }).noticeEl;
+    el?.addEventListener("click", () => {
+      void (async () => {
+        const lines = (await this.app.vault.read(file)).split("\n");
+        const at = findLine ? lines.lastIndexOf(findLine) : -1;
+        await this.openAt(file, at >= 0 ? at : lines.length - 1);
+      })();
+    });
+  }
+
+  // ---------- file history: every new file is listed, and notes get a created date ----------
+
+  async onCreated(file: TFile): Promise<void> {
+    if (!this.file(file.path)) return; // gone again (renamed or deleted)
+    const skip = [F.now, F.history, F.inbox];
+    if (skip.includes(file.path) || file.path.startsWith(F.templates + "/") || file.path.startsWith(".")) return;
+    const now = new Date();
+    let type = file.extension === "md" ? "note" : file.extension;
+    if (file.extension === "md") {
+      await this.app.fileManager.processFrontMatter(file, (m) => {
+        if (!m.created) m.created = `${ymd(now)} ${hhmm(now)}`;
+        if (!m.type) m.type = "note";
+        type = String(m.type);
+      });
+    }
+    const name = file.extension === "md" ? file.basename : file.name;
+    const link = `[[${name}]]`;
+    const folder = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "vault root";
+    const line = `- ${ymd(now)} ${hhmm(now)} · ${link} · ${folder} · ${type}`;
+    const hist = this.file(F.history) ?? (await this.createNote(F.history, "# File History\n\n## Log\n"));
+    await this.edit(hist, (c) => {
+      if (c.includes(`· ${link} ·`)) return c; // already listed (for example, created on the other device)
+      const i = c.indexOf("## Log");
+      if (i === -1) return c.replace(/\s+$/, "") + `\n\n## Log\n${line}\n`;
+      const lineEnd = c.indexOf("\n", i);
+      const at = lineEnd === -1 ? c.length : lineEnd + 1;
+      return c.slice(0, at) + line + "\n" + c.slice(at); // newest on top
+    });
+  }
+
   // ---------- menu ----------
 
   menuItems(): (MenuItem & { id: string })[] {
@@ -283,18 +514,22 @@ export default class WorkOSLogger extends Plugin {
     const item = (key: string, id: string, group: string, label: string, run: () => unknown, hint?: string) =>
       ({ key, id, group, label, hint, run: () => void run() });
     return [
-      item("s", "toggle-timer", "Timer", r ? "Stop the timer" : "Start timer on this note", () => this.toggle(), r ? `logs ${r.title}` : undefined),
+      item("s", "toggle-timer", "Timer", r ? "Stop the timer" : "Start timer on this note", () => this.toggle(), r ? `logs ${r.title}` : "asks what you are doing"),
       item("t", "new-task", "Timer", "New task", () => this.newTask(), "type a name, timer starts"),
+      item("e", "step-done", "Timer", "Next step", () => this.stepDone(), r ? "logs this step, asks what is next" : "starts the timer if it is off"),
+      item("b", "back", "Timer", "Back to what I was doing", () => this.goBack(), r?.back ? `back to ${r.back.title}` : "after an interruption"),
       item("r", "resume-task", "Timer", "Resume a task", () => this.resumeTask(), "pick from open tasks"),
       item("d", "finish-task", "Timer", "Finish this task", () => this.finishTask()),
       item("m", "start-meeting", "Timer", "Start a meeting", () => this.startMeeting()),
       item("l", "log-forgotten", "Timer", "Log time I forgot", () => this.logForgotten(), "pick how long"),
       item("z", "undo-last-log", "Timer", "Undo the last time log", () => this.undoLast()),
-      item("i", "capture-inbox", "Capture", "Capture to Inbox", () => this.captureInbox(), "one line, timer keeps running"),
+      item("i", "interrupted", "Capture", "Interrupted", () => this.interrupted(), "note it for later, or deal with it now"),
       item("p", "process-inbox", "Capture", `Clear the Inbox${this.inboxCount ? ` (${this.inboxCount})` : ""}`, () => this.processInbox()),
       item("v", "capture-clipboard", "Capture", "Save copied text", () => this.captureClipboard(), "to a project or the Inbox"),
       item("u", "copy-status", "Report", "Copy today's status", () => this.copyStatus()),
       item("w", "weekly-report", "Report", "Build this week's report", () => this.weeklyReport()),
+      item("a", "all-tasks", "Go to", "All tasks in one list", () => this.openPath(F.allTasks), "task notes and every checkbox"),
+      item("f", "file-history", "Go to", "File history", () => this.openPath(F.history), "every new file, newest first"),
       item("o", "open-today", "Go to", "Today's note", () => this.openToday()),
       item("h", "open-home", "Go to", "Home (scoreboard)", () => this.openPath(F.home)),
       item("n", "new-project", "Go to", "New project", () => this.newProject()),
@@ -309,7 +544,7 @@ export default class WorkOSLogger extends Plugin {
     const status = r
       ? `▶ ${r.title} · ${fmtDur(Math.max(0, Math.round((Date.now() - r.start) / 60000)))}${inbox}`
       : `Nothing is being timed · today ${fmtDur(this.todayTotal)}${inbox}`;
-    new MenuModal(this.app, status, this.menuItems()).open();
+    new MenuModal(this.app, status, this.menuItems(), this.manifest.version).open();
   }
 
   /** Reports any other command that uses the same key as the menu. Uses Obsidian internals, so it fails softly. */
@@ -402,8 +637,10 @@ export default class WorkOSLogger extends Plugin {
     await this.openFile(await this.ensureDaily(this.today()));
   }
 
+  /** A daily note: named like 2026-11-19, in 01 Journal (or the old 01 Daily folder). */
   private isDaily(path: string): boolean {
-    return path.startsWith(F.daily + "/");
+    const name = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+    return (path.startsWith(F.daily + "/") || path.startsWith(LEGACY_DAILY + "/")) && DATE_NAME.test(name);
   }
 
   private fm(file: TFile): Record<string, unknown> {
@@ -431,13 +668,58 @@ export default class WorkOSLogger extends Plugin {
     new PickModal<string>(this.app, [...extra, ...this.projects()], (x) => x, placeholder, cb).open();
   }
 
+  /** Daily notes live flat in one folder: 01 Journal/2026-11-19.md (the same place Periodic Notes uses). */
   private dailyPath(date: string): string {
-    return `${F.daily}/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`;
+    return `${F.daily}/${date}.md`;
   }
 
+  /** Today's note wherever it is (an older note may still sit in a year/month subfolder), else a new flat one. */
   private async ensureDaily(date: string): Promise<TFile> {
     const path = this.dailyPath(date);
-    return this.file(path) ?? this.createNote(path, fill(await this.tpl("Daily"), { date, title: date }));
+    const found = this.file(path) ?? this.app.vault.getMarkdownFiles().find((f) => f.basename === date && this.isDaily(f.path));
+    return found ?? this.createNote(path, fill(await this.tpl("Daily"), { date, title: date }));
+  }
+
+  /** Journal notes not yet in 01 Journal: daily notes in year/month subfolders or in 01 Daily, and old weekly/monthly/quarterly/yearly notes. */
+  nestedDailies(): TFile[] {
+    return this.app.vault
+      .getMarkdownFiles()
+      .filter(
+        (f) =>
+          (this.isDaily(f.path) && f.path !== this.dailyPath(f.basename)) ||
+          LEGACY_REVIEWS.some((folder) => f.path.startsWith(folder + "/")),
+      );
+  }
+
+  /** Moves every journal note into 01 Journal and removes the folders left empty. Links keep working. */
+  async flattenDailies(): Promise<number> {
+    let moved = 0;
+    const skipped: string[] = [];
+    for (const f of this.nestedDailies()) {
+      const target = `${F.daily}/${f.name}`;
+      if (this.file(target)) {
+        skipped.push(f.basename);
+        continue;
+      }
+      await this.app.fileManager.renameFile(f, target);
+      this.dayCache.delete(f.path);
+      moved++;
+    }
+    /** Deletes folders that hold nothing (a leftover .gitkeep placeholder counts as nothing). */
+    const removeEmpty = async (path: string, keep: boolean): Promise<void> => {
+      const folder = this.app.vault.getAbstractFileByPath(path);
+      if (!(folder instanceof TFolder)) return;
+      for (const c of [...folder.children]) if (c instanceof TFolder) await removeEmpty(c.path, false);
+      const after = this.app.vault.getAbstractFileByPath(path);
+      if (keep || !(after instanceof TFolder)) return;
+      if (after.children.every((c) => c instanceof TFile && c.name === ".gitkeep")) await this.app.vault.delete(after, true);
+    };
+    await removeEmpty(F.daily, true);
+    await removeEmpty(LEGACY_DAILY, false);
+    for (const folder of LEGACY_REVIEWS) await removeEmpty(folder, false);
+    await this.refreshAll();
+    new Notice(`Moved ${moved} journal note${moved === 1 ? "" : "s"} into ${F.daily}.${skipped.length ? `\nLeft in place (a note with the same date already exists): ${skipped.join(", ")}` : ""}`, 10000);
+    return moved;
   }
 
   // ---------- numbers: always rebuilt from the notes ----------
@@ -447,7 +729,7 @@ export default class WorkOSLogger extends Plugin {
     const files = this.app.vault.getMarkdownFiles();
     const days: Days = {};
     for (const f of files) {
-      if (!this.isDaily(f.path) || !/^\d{4}-\d\d-\d\d$/.test(f.basename)) continue;
+      if (!this.isDaily(f.path)) continue;
       if (this.fm(f).sample === true) continue; // sample days never count
       let d = this.dayCache.get(f.path);
       if (!d) {
@@ -498,7 +780,7 @@ export default class WorkOSLogger extends Plugin {
     const inbox = this.inboxCount > 0 ? ` · 📥 ${this.inboxCount}` : "";
     if (r) {
       const mins = Math.max(0, Math.round((Date.now() - r.start) / 60000));
-      this.statusEl.setText(`▶ ${r.title} · ${fmtDur(mins)}${inbox}`);
+      this.statusEl.setText(`▶ ${kindOf(r.activity).emoji} ${r.label ? r.label + " · " : ""}${r.title} · ${fmtDur(mins)}${inbox}`);
     } else {
       this.statusEl.setText(`⏱ Today ${fmtDur(this.todayTotal)}${inbox}`);
     }
@@ -613,7 +895,7 @@ export default class WorkOSLogger extends Plugin {
       return;
     }
     if (action === 0 || action === 1) {
-      await this.createTask(name, project ?? null, { start: action === 0, open: action === 0, asked: clean });
+      await this.createTask(name, project ?? null, { start: action === 0, open: action === 0, asked: clean, ask: action === 0 });
     } else if (action === 2) {
       const list = this.file(F.tasksFile);
       if (list) await this.edit(list, (c) => insertUnderHeading(c, "## Next (this week)", `- [ ] ${clean}`));
@@ -661,7 +943,16 @@ export default class WorkOSLogger extends Plugin {
       if (f.path.startsWith(F.templates + "/")) continue;
       const text = await this.app.vault.read(f);
       if (!text.includes(SAMPLE_MARK) && !Array.from(names).some((n) => text.includes(`[[${n}`))) continue;
-      await this.edit(f, (c) => c.split("\n").filter((l) => !(/^\s*[-*|]/.test(l) && isSampleLine(l))).join("\n"));
+      await this.edit(f, (c) => {
+        let inCode = false;
+        return c
+          .split("\n")
+          .filter((l) => {
+            if (/^\s*(```|~~~)/.test(l)) inCode = !inCode;
+            return inCode || !(/^\s*[-*|]/.test(l) && isSampleLine(l));
+          })
+          .join("\n");
+      });
       if (this.isDaily(f.path)) await this.stampDaily(f);
     }
     await this.refreshInbox();
@@ -680,26 +971,52 @@ export default class WorkOSLogger extends Plugin {
       new Notice("Open the note you are working on, then start the timer.");
       return;
     }
-    await this.startTimer(f);
+    await this.startTimer(f, "work", { ask: true });
   }
 
-  async startTimer(file: TFile, kind: "work" | "meeting" = "work"): Promise<void> {
+  /**
+   * Starts timing a note. With ask, a "What are you doing?" box follows; the clock already runs from the moment
+   * of starting, and the answer is attached when picked.
+   */
+  async startTimer(file: TFile, kind: "work" | "meeting" = "work", opts: { ask?: boolean; activity?: string; label?: string; back?: Back | null; at?: number } = {}): Promise<void> {
     const r = this.running;
     if (r) {
-      if (r.path === file.path) {
+      if (r.path === file.path && !opts.back) {
         new Notice(`▶ Already timing "${r.title}"`);
         return;
       }
-      await this.stopTimer({ quiet: true });
+      await this.stopTimer({ quiet: true, at: opts.at });
     }
-    await this.setRunning({ path: file.path, title: file.basename, start: Date.now(), kind });
+    const activity = kind === "meeting" ? "meeting" : opts.activity ?? "work";
+    await this.setRunning({ path: file.path, title: file.basename, start: opts.at ?? Date.now(), kind, activity, label: opts.label ?? "", back: opts.back ?? null });
     const fm = this.fm(file);
-    if (fm.type === "task" && fm.status === "todo") {
+    if (fm.type === "task" && (fm.status === "todo" || fm.status === "waiting")) {
       await this.app.fileManager.processFrontMatter(file, (m) => {
         m.status = "doing";
       });
     }
-    new Notice(`▶ Started: ${file.basename}`);
+    if (opts.ask && kind !== "meeting") this.askActivity(`Started on "${file.basename}". What are you doing?`);
+    else new Notice(`▶ Started: ${file.basename} · ${kindOf(activity).emoji} ${opts.label || kindOf(activity).label}`);
+  }
+
+  /** Attaches "what I am doing" to the running timer without changing its start. */
+  askActivity(heading: string): void {
+    const startedAt = this.running?.start;
+    new ActivityModal(
+      this.app,
+      heading,
+      (activity, label) => void this.setActivity(activity, label, startedAt),
+      () => new Notice(`▶ Timing as ${kindOf(this.running?.activity).emoji} ${kindOf(this.running?.activity).label}`),
+    ).open();
+  }
+
+  async setActivity(activity: string, label: string, startedAt?: number): Promise<void> {
+    await this.loadRunning();
+    const r = this.running;
+    if (!r || (startedAt !== undefined && r.start !== startedAt)) return;
+    await this.setRunning({ ...r, activity, label: label.replace(/\s+/g, " ").trim() });
+    const k = kindOf(activity);
+    new Notice(`▶ ${k.emoji} ${label || k.label} · ${r.title}`);
   }
 
   async requestStop(withNote: boolean): Promise<void> {
@@ -710,8 +1027,14 @@ export default class WorkOSLogger extends Plugin {
     }
     const mins = Math.round((Date.now() - r.start) / 60000);
     const finish = (override?: number) => {
-      if (withNote) new PromptModal(this.app, "What did you do? (a few words)", (note) => void this.stopTimer({ note, mins: override })).open();
-      else void this.stopTimer({ mins: override });
+      void (async () => {
+        if (withNote) {
+          new PromptModal(this.app, "What did you do? (a few words)", (note) => void this.stopTimer({ note, mins: override }).then(() => this.offerBack(r))).open();
+          return;
+        }
+        await this.stopTimer({ mins: override });
+        this.offerBack(r);
+      })();
     };
     if (mins > this.store.settings.capMins) {
       new ForgotModal(this.app, r.title, mins, (picked) => {
@@ -723,21 +1046,119 @@ export default class WorkOSLogger extends Plugin {
     finish();
   }
 
+  /** After an interruption is stopped: one tap to go back to the paused task. */
+  private offerBack(r: Timer): void {
+    const back = r.back;
+    if (!back) return;
+    const yes = `Back to: ${back.title} (timer restarts)`;
+    new PickModal<string>(this.app, [yes, "No, leave the timer stopped"], (x) => x, "Interruption logged. Go back?", (pick) => {
+      if (pick === yes) void this.resumeBack(back);
+    }).open();
+  }
+
+  async resumeBack(back: Back): Promise<void> {
+    const f = this.file(back.path);
+    if (!f) {
+      new Notice(`Could not find "${back.title}" any more.`);
+      return;
+    }
+    await this.openFile(f);
+    await this.startTimer(f, "work", { activity: back.activity, label: back.label });
+  }
+
+  async goBack(): Promise<void> {
+    await this.loadRunning();
+    const r = this.running;
+    if (!r?.back) {
+      new Notice("Nothing was paused by an interruption. To pick any task: Menu → R.");
+      return;
+    }
+    const back = r.back;
+    await this.stopTimer({});
+    await this.resumeBack(back);
+  }
+
+  /** Menu → I: note it for later (timer keeps going), or deal with it now (this task pauses, interruption time is logged). */
+  interrupted(): void {
+    const later = "Note it for later (keep working)";
+    const now = "Deal with it now (pause what I am doing)";
+    new PickModal<string>(this.app, [later, now], (x) => x, "Interrupted. What do you want to do?", (pick) => {
+      if (pick === later) this.captureInbox();
+      else void this.interruptNow();
+    }).open();
+  }
+
+  async interruptNow(label = "", at = Date.now()): Promise<void> {
+    await this.loadRunning();
+    const r = this.running;
+    const back: Back | null = r && r.activity !== "interrupt" ? { path: r.path, title: r.title, activity: r.activity ?? "work", label: r.label ?? "" } : r?.back ?? null;
+    if (r) await this.stopTimer({ at, quiet: false });
+    const daily = await this.ensureDaily(ymd(new Date(at)));
+    await this.setRunning({ path: daily.path, title: "Interruption", start: at, kind: "work", activity: "interrupt", label, back });
+    if (label) return;
+    new PromptModal(this.app, "What is it? (optional, Esc to skip)", (v) => void this.setActivity("interrupt", v, at)).open();
+    new Notice(`⚡ Interruption timing started.${back ? `\n"${back.title}" is paused. Press Menu → S when done; you will be offered to go back.` : ""}`, 9000);
+  }
+
   async discard(): Promise<void> {
     await this.setRunning(null);
     new Notice("Timer cleared. Nothing logged.");
   }
 
-  async stopTimer(opts: { note?: string; mins?: number; quiet?: boolean } = {}): Promise<void> {
+  async stopTimer(opts: { note?: string; mins?: number; quiet?: boolean; at?: number } = {}): Promise<void> {
     const r = this.running;
     if (!r) return;
-    const mins = opts.mins ?? Math.round((Date.now() - r.start) / 60000);
+    const end = opts.at ?? Date.now();
+    const mins = opts.mins ?? toMins(end - r.start);
     await this.setRunning(null);
     if (mins < 1) {
-      if (!opts.quiet) new Notice("Under 1 minute. Nothing logged.");
+      if (!opts.quiet) new Notice("Less than 15 seconds. Nothing logged.");
       return;
     }
     await this.logSession(r, mins, opts.note ?? "", !!opts.quiet);
+  }
+
+  /** Menu → E: log the step that just ended, keep the clock going, ask what comes next. */
+  async stepDone(): Promise<void> {
+    await this.loadRunning();
+    const r = this.running;
+    if (!r) {
+      const f = this.app.workspace.getActiveFile();
+      if (!f) {
+        new Notice("No timer is running and no note is open. Open your task (Menu → R) or make one (Menu → T).", 9000);
+        return;
+      }
+      await this.startTimer(f, "work", { ask: true });
+      return;
+    }
+    const endAt = Date.now();
+    const logged = await this.nextStep(r, endAt);
+    if (logged) this.askActivity(`Step logged. What are you doing next on "${r.title}"?`);
+  }
+
+  /** Logs the running step up to endAt and keeps timing the same note from endAt. Returns false if nothing changed. */
+  async nextStep(r: Timer, endAt: number): Promise<boolean> {
+    await this.loadRunning();
+    const cur = this.running;
+    if (!cur || cur.path !== r.path || cur.start !== r.start) {
+      new Notice("The timer was changed meanwhile (maybe on your other device). Nothing logged.");
+      return false;
+    }
+    const mins = toMins(endAt - r.start);
+    if (mins < 1) {
+      new Notice("Less than 15 seconds since this step started, so nothing was logged. The timer keeps going.", 8000);
+      return false;
+    }
+    const doLog = async (m: number | null) => {
+      await this.setRunning({ ...r, start: endAt, label: "" });
+      if (m !== null) await this.logSession({ ...r, start: endAt - m * 60000 }, m, "", false);
+    };
+    if (mins > this.store.settings.capMins) {
+      new ForgotModal(this.app, r.title, mins, (picked) => void doLog(picked).then(() => this.askActivity("What are you doing next?"))).open();
+      return false;
+    }
+    await doLog(mins);
+    return true;
   }
 
   /** For when the timer was never started: pick how long, it is logged on the open note ending now. */
@@ -774,24 +1195,28 @@ export default class WorkOSLogger extends Plugin {
     const file = this.file(r.path);
     const timedDaily = this.isDaily(r.path);
     const project = file && !timedDaily ? this.projectOf(file) : null;
-    const title = timedDaily ? "General work" : file ? file.basename : r.title;
-    const taskLine = `- ${date} ${range} [mins:: ${mins}]${note ? " " + note : ""}`;
-    const mark = r.kind === "meeting" ? `${MEETING_MARK} ` : "";
-    const links = timedDaily ? "General work" : `${mark}[[${title}]]${project && project !== title ? ` · [[${project}]]` : ""}`;
-    const dailyLine = `- ${range} [mins:: ${mins}] ${links}${note ? " — " + note : ""}`;
+    const k = kindOf(r.activity ?? (r.kind === "meeting" ? "meeting" : "work"));
+    const title = timedDaily ? (k.id === "interrupt" ? "Interruption" : "General work") : file ? file.basename : r.title;
+    const what = [r.label ?? "", note].filter(Boolean).join(" — ");
+    const taskLine = `- ${date} ${range} [mins:: ${mins}] ${k.emoji}${what ? " " + what : ""}`;
+    const links = timedDaily ? title : `[[${title}]]${project && project !== title ? ` · [[${project}]]` : ""}`;
+    const dailyLine = `- ${range} [mins:: ${mins}] ${k.emoji} ${links}${what ? " — " + what : ""}`;
     const taskPath = file && !timedDaily ? file.path : null;
 
     const s = this.store;
     const before = await this.loadDays();
+    let dailyAt = this.dailyPath(date);
     try {
       if (file && taskPath) {
         await this.edit(file, (c) => insertUnderHeading(c, TIME_LOG, taskLine));
+        const spent = sumTimeLog(await this.app.vault.read(file)); // always the total of the lines, so hand edits are respected
         await this.app.fileManager.processFrontMatter(file, (m) => {
-          m.actual_mins = (Number(m.actual_mins) || 0) + mins;
+          m.actual_mins = spent;
           m.last_worked = date;
         });
       }
       const daily = await this.ensureDaily(date);
+      dailyAt = daily.path;
       await this.edit(daily, (c) => insertUnderHeading(c, TIME_LOG, dailyLine));
       await this.stampDaily(daily);
     } catch (e) {
@@ -799,7 +1224,7 @@ export default class WorkOSLogger extends Plugin {
       new Notice("Logger: could not write the time into a note. Nothing was counted. Try again.", 10000);
       return;
     }
-    s.lastLog = { date, mins, title, taskPath, taskLine, dailyPath: this.dailyPath(date), dailyLine };
+    s.lastLog = { date, mins, title, taskPath, taskLine, dailyPath: dailyAt, dailyLine };
     await this.save();
     const days = await this.refreshAll();
     if (quiet) return;
@@ -813,7 +1238,10 @@ export default class WorkOSLogger extends Plugin {
     const lvBefore = level(totalAll(before)).level;
     const lvNow = level(totalAll(days)).level;
     if (lvNow > lvBefore) lines.push(`⬆ Level ${lvNow}!`);
-    new Notice(lines.join("\n"), 7000);
+    lines[0] = `✔ ${fmtDur(mins)} · ${k.emoji} ${what || k.label} · ${title}`;
+    lines.push(taskPath ? `Written at the bottom of "${title}" (Time Log) and in today's note.` : "Written in today's note (Time Log).");
+    if (file && taskPath) this.noticeOpening(lines.join("\n"), file, taskLine);
+    else this.noticeOpening(lines.join("\n"), await this.ensureDaily(date), dailyLine);
   }
 
   async undoLast(): Promise<void> {
@@ -825,8 +1253,9 @@ export default class WorkOSLogger extends Plugin {
     const task = l.taskPath ? this.file(l.taskPath) : null;
     if (task) {
       await this.edit(task, (c) => removeExactLine(c, l.taskLine, true));
+      const spent = sumTimeLog(await this.app.vault.read(task));
       await this.app.fileManager.processFrontMatter(task, (m) => {
-        m.actual_mins = Math.max(0, (Number(m.actual_mins) || 0) - l.mins);
+        m.actual_mins = spent;
       });
     }
     const daily = this.file(l.dailyPath);
@@ -849,10 +1278,10 @@ export default class WorkOSLogger extends Plugin {
       const active = this.app.workspace.getActiveFile();
       const here = active ? this.projectOf(active) : null;
       if (here && this.projects().includes(here)) {
-        void this.createTask(name, here);
+        void this.createTask(name, here, { ask: true });
         return;
       }
-      this.pickProject("Which project?", [NONE], (p) => void this.createTask(name, p === NONE ? null : p));
+      this.pickProject("Which project?", [NONE], (p) => void this.createTask(name, p === NONE ? null : p, { ask: true }));
     }).open();
   }
 
@@ -875,7 +1304,7 @@ export default class WorkOSLogger extends Plugin {
       if (list) await this.edit(list, (c) => insertUnderHeading(c, home ? "## Tasks" : "## Next (this week)", box));
     }
     if (open) await this.openFile(file);
-    if (start) await this.startTimer(file);
+    if (start) await this.startTimer(file, "work", { ask: opts.ask ?? false });
     else new Notice(`Task saved for later: ${name}`);
     return file;
   }
@@ -901,7 +1330,7 @@ export default class WorkOSLogger extends Plugin {
     new PickModal<TFile>(this.app, tasks, label, "Resume which task?", (f) => {
       void (async () => {
         await this.openFile(f);
-        await this.startTimer(f);
+        await this.startTimer(f, "work", { ask: true });
       })();
     }).open();
   }
@@ -909,9 +1338,13 @@ export default class WorkOSLogger extends Plugin {
   async finishTask(): Promise<void> {
     const file = this.app.workspace.getActiveFile();
     if (!file || this.fm(file).type !== "task") {
-      new Notice("Open the task note you finished first (menu → R lists your open tasks).");
+      new Notice("Open the task note you finished first (Menu → R lists your open tasks).");
       return;
     }
+    await this.finishTaskFile(file);
+  }
+
+  async finishTaskFile(file: TFile): Promise<void> {
     if (this.running?.path === file.path) await this.stopTimer({ quiet: true });
     const date = this.today();
     await this.app.fileManager.processFrontMatter(file, (m) => {
@@ -998,27 +1431,43 @@ export default class WorkOSLogger extends Plugin {
       /* no clipboard access */
     }
     if (!text) {
-      new Notice("Nothing copied (or Obsidian cannot read the clipboard). Copy the message first.");
+      new Notice("Nothing copied (or Obsidian cannot read the clipboard). Copy the message or answer first.");
       return;
     }
+    const sources = ["Message or chat", "AI answer (check before trusting)", "Email", "Document or web page", "Meeting", "Other"];
+    new PickModal<string>(this.app, sources, (x) => x, "Where is this from?", (src) => void this.placeCaptured(text, src.replace(/ \(.*\)$/, ""))).open();
+  }
+
+  /** Full text goes to the project's Info & Messages; the open task gets a one-line link to it. */
+  async placeCaptured(text: string, source: string): Promise<void> {
     const active = this.app.workspace.getActiveFile();
+    const task = active && this.fm(active).type === "task" ? active : null;
     const here = active ? this.projectOf(active) : null;
+    if (task) {
+      await this.appendToTask(task, text, source);
+      return;
+    }
     if (here && this.projects().includes(here)) {
-      await this.appendInfo(here, text);
+      await this.appendInfo(here, text, false, source, null);
       return;
     }
     this.pickProject("Save the copied text where?", [TO_INBOX], (p) => {
-      if (p === TO_INBOX) void this.addToInbox(text);
-      else void this.appendInfo(p, text);
+      if (p === TO_INBOX) void this.addToInbox(`${source}: ${text}`);
+      else void this.appendInfo(p, text, false, source, null);
     });
   }
 
-  async appendInfo(project: string, text: string, quiet = false): Promise<void> {
+  private stamp(): string {
+    const now = new Date();
+    return `${ymd(now)} ${hhmm(now)}`;
+  }
+
+  async appendInfo(project: string, text: string, quiet = false, source = "", task: TFile | null = null): Promise<void> {
     const path = `${F.projects}/${project}/${project} - Info & Messages.md`;
     const file = await this.createNote(path, fill(await this.tpl("Project Info & Messages"), { project, title: project, date: this.today() }));
     const quoted = text.split("\n").map((l) => `> ${l}`).join("\n");
-    const now = new Date();
-    const entry = `### ${ymd(now)} ${hhmm(now)}\n${quoted}\n`;
+    const when = this.stamp();
+    const entry = `### ${when}${source ? ` · ${source}` : ""}${task ? ` · [[${task.basename}]]` : ""}\n${quoted}\n`;
     await this.edit(file, (c) => {
       const marker = "## Log";
       const i = c.indexOf(marker);
@@ -1027,7 +1476,21 @@ export default class WorkOSLogger extends Plugin {
       const at = lineEnd === -1 ? c.length : lineEnd + 1;
       return c.slice(0, at) + "\n" + entry + c.slice(at); // newest on top
     });
-    if (!quiet) new Notice(`Saved to ${project} - Info & Messages`);
+    if (task) {
+      const flat = oneLine(text);
+      const preview = flat.length > 60 ? flat.slice(0, 60) + "…" : flat;
+      const line = `- ${when} · ${source || "Saved"} → [[${file.basename}]]: ${preview}`;
+      await this.edit(task, (c) => insertUnderHeading(c, GATHER, line));
+    }
+    if (!quiet) this.noticeOpening(`Added to "${file.basename}", under Log.`, file, null, 7000);
+  }
+
+  /** A task with no project keeps the copied text inside its own Gather section. */
+  async appendToTask(task: TFile, text: string, source: string): Promise<void> {
+    const quoted = text.split("\n").map((l) => `    > ${l}`).join("\n");
+    const head = `- ${this.stamp()} · ${source}:`;
+    await this.edit(task, (c) => insertUnderHeading(c, GATHER, `${head}\n${quoted}`));
+    this.noticeOpening(`Added to "${task.basename}", under 2 Gather.`, task, head, 7000);
   }
 
   // ---------- reports ----------
@@ -1054,7 +1517,7 @@ export default class WorkOSLogger extends Plugin {
     const ws = weekStart(this.today());
     const label = isoWeekLabel(ws);
     const path = `${F.weekly}/${label}.md`;
-    const file = await this.createNote(path, fill(await this.tpl("Weekly Review"), { date: ws, title: label }));
+    const file = await this.createNote(path, fill(await this.tpl("Weekly Review"), { date: ws, title: label, "monday:YYYY-MM-DD": ws }));
     const block = buildWeekBlock(await this.loadDays(), ws);
     await this.edit(file, (c) => replaceAutoBlock(c, "week", block));
     await this.openFile(file);

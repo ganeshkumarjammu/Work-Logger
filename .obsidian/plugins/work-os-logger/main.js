@@ -26,13 +26,27 @@ module.exports = __toCommonJS(main_exports);
 var import_obsidian = require("obsidian");
 
 // src/core.ts
+var KINDS = [
+  { id: "work", emoji: "\u{1F528}", label: "Doing the work" },
+  { id: "learn", emoji: "\u{1F4DA}", label: "Learning / research" },
+  { id: "talk", emoji: "\u{1F4AC}", label: "Messages and calls" },
+  { id: "meeting", emoji: "\u{1F4C5}", label: "Meeting" },
+  { id: "plan", emoji: "\u{1F9ED}", label: "Planning" },
+  { id: "admin", emoji: "\u{1F4CB}", label: "Updates and admin" },
+  { id: "interrupt", emoji: "\u26A1", label: "Interruption" }
+];
+var INTERRUPTIONS = "Interruptions";
+function kindOf(id) {
+  var _a;
+  return (_a = KINDS.find((k) => k.id === id)) != null ? _a : KINDS[0];
+}
 var NO_PROJECT = "No project";
 var MEETINGS = "Meetings";
 var plain = (p) => p === NO_PROJECT || p === MEETINGS;
 var DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 var LEVEL_MINS = 600;
 function emptyDay() {
-  return { total: 0, sessions: 0, meetingMins: 0, byProject: {}, byTask: {}, done: [] };
+  return { total: 0, sessions: 0, meetingMins: 0, byProject: {}, byTask: {}, byKind: {}, done: [] };
 }
 function fmtDur(mins) {
   const m = Math.max(0, Math.round(mins));
@@ -137,13 +151,14 @@ function safeName(s) {
   return s.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim();
 }
 function mergeWeek(days, ws) {
-  var _a, _b, _c, _d, _e;
+  var _a, _b, _c, _d, _e, _f, _g;
   const out = {
     total: 0,
     sessions: 0,
     meetingMins: 0,
     byProject: {},
     byTask: {},
+    byKind: {},
     done: [],
     perDay: []
   };
@@ -156,12 +171,13 @@ function mergeWeek(days, ws) {
     out.sessions += d.sessions;
     out.meetingMins += (_b = d.meetingMins) != null ? _b : 0;
     for (const [p, m] of Object.entries(d.byProject)) out.byProject[p] = ((_c = out.byProject[p]) != null ? _c : 0) + m;
+    for (const [k, m] of Object.entries((_d = d.byKind) != null ? _d : {})) out.byKind[k] = ((_e = out.byKind[k]) != null ? _e : 0) + m;
     for (const [t, s] of Object.entries(d.byTask)) {
-      const cur = (_d = out.byTask[t]) != null ? _d : { mins: 0, project: s.project };
+      const cur = (_f = out.byTask[t]) != null ? _f : { mins: 0, project: s.project };
       cur.mins += s.mins;
       out.byTask[t] = cur;
     }
-    for (const t of (_e = d.done) != null ? _e : []) if (!out.done.includes(t)) out.done.push(t);
+    for (const t of (_g = d.done) != null ? _g : []) if (!out.done.includes(t)) out.done.push(t);
   }
   return out;
 }
@@ -237,7 +253,7 @@ function stripStamp(text) {
   return text.replace(/\s*\(\d\d-\d\d \d\d:\d\d\)\s*$/, "").trim();
 }
 function parseDaily(content, projects) {
-  var _a, _b, _c, _d, _e;
+  var _a, _b, _c, _d, _e, _f;
   const day = emptyDay();
   const lines = content.split("\n");
   const start = lines.findIndex((l) => l.trim() === "## Time Log");
@@ -247,22 +263,29 @@ function parseDaily(content, projects) {
     const m = /^\s*- \d\d:\d\d-\d\d:\d\d \[mins:: (\d+)\]\s*(.*)$/.exec(lines[i]);
     if (!m) continue;
     const mins = parseInt(m[1], 10);
-    const rest = m[2];
-    const meeting = rest.startsWith(MEETING_MARK);
+    let rest = m[2].trim();
+    let kind = "work";
+    for (const k of KINDS) {
+      if (rest.startsWith(k.emoji)) {
+        kind = k.id;
+        rest = rest.slice(k.emoji.length).trim();
+        break;
+      }
+    }
     const head = rest.split(" \u2014 ")[0];
     const links = Array.from(head.matchAll(/\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g)).map((x) => x[1]);
-    const title = (_a = links[0]) != null ? _a : "General work";
-    const pKey = (_b = links[1]) != null ? _b : meeting ? MEETINGS : projects.has(title) ? title : NO_PROJECT;
+    const title = (_a = links[0]) != null ? _a : head.trim() || "General work";
+    const pKey = (_b = links[1]) != null ? _b : kind === "meeting" ? MEETINGS : kind === "interrupt" ? INTERRUPTIONS : projects.has(title) ? title : NO_PROJECT;
     day.total += mins;
     day.sessions += 1;
-    if (meeting) day.meetingMins += mins;
-    day.byProject[pKey] = ((_c = day.byProject[pKey]) != null ? _c : 0) + mins;
-    const t = (_e = (_d = day.byTask)[title]) != null ? _e : _d[title] = { mins: 0, project: pKey };
+    if (kind === "meeting") day.meetingMins += mins;
+    day.byKind[kind] = ((_c = day.byKind[kind]) != null ? _c : 0) + mins;
+    day.byProject[pKey] = ((_d = day.byProject[pKey]) != null ? _d : 0) + mins;
+    const t = (_f = (_e = day.byTask)[title]) != null ? _f : _e[title] = { mins: 0, project: pKey };
     t.mins += mins;
   }
   return day;
 }
-var MEETING_MARK = "\u{1F4C5}";
 function gapOk(a, b, skipWeekends) {
   for (let d = addDays(a, 1); d < b; d = addDays(d, 1)) if (!(skipWeekends && isWeekend(d))) return false;
   return true;
@@ -306,10 +329,12 @@ function scoreData(days, today, goalMins, skipWeekends, inbox) {
       return { label: DAY_NAMES[dow(d)], mins: (_b2 = (_a2 = days[d]) == null ? void 0 : _a2.total) != null ? _b2 : 0, isToday: d === today };
     }),
     projects: sortedEntries(week.byProject, (v) => v),
+    kinds: sortedEntries(week.byKind, (v) => v).map(([k, m]) => [`${kindOf(k).emoji} ${kindOf(k).label}`, m]),
     doneToday: t.done
   };
 }
 function buildNow(t) {
+  var _a, _b;
   const foot = "\n\n> Written by Work OS so the running timer follows you between laptop and phone. Do not edit by hand.\n";
   if (!t) return `---
 type: timer
@@ -317,20 +342,24 @@ type: timer
 # Now
 
 Nothing is being timed.${foot}`;
-  return [
+  const k = kindOf((_a = t.activity) != null ? _a : t.kind === "meeting" ? "meeting" : "work");
+  const fm = [
     "---",
     "type: timer",
     `timer_path: ${JSON.stringify(t.path)}`,
     `timer_title: ${JSON.stringify(t.title)}`,
     `timer_start: ${t.start}`,
     `timer_kind: ${t.kind}`,
-    "---",
-    "# Now",
-    "",
-    `\u25B6 Working on [[${t.title}]] since ${hhmm(new Date(t.start))} (${ymd(new Date(t.start))}).`
-  ].join("\n") + foot;
+    `timer_activity: ${k.id}`,
+    `timer_label: ${JSON.stringify((_b = t.label) != null ? _b : "")}`
+  ];
+  if (t.back) fm.push(`timer_back: ${JSON.stringify(JSON.stringify(t.back))}`);
+  fm.push("---", "# Now", "", `\u25B6 ${k.emoji} ${t.label ? `${t.label} \xB7 ` : ""}[[${t.title}]] since ${hhmm(new Date(t.start))} (${ymd(new Date(t.start))}).`);
+  if (t.back) fm.push("", `Paused for this: [[${t.back.title}]]. Stopping this timer offers to go back to it.`);
+  return fm.join("\n") + foot;
 }
 function parseNow(content) {
+  var _a;
   const fm = /^---\n([\s\S]*?)\n---/.exec(content);
   if (!fm) return null;
   const get = (k) => {
@@ -344,10 +373,66 @@ function parseNow(content) {
     const path = String(JSON.parse(rawPath));
     const rawTitle = get("timer_title");
     const title = rawTitle ? String(JSON.parse(rawTitle)) : path;
-    return { path, title, start, kind: get("timer_kind") === "meeting" ? "meeting" : "work" };
+    const kind = get("timer_kind") === "meeting" ? "meeting" : "work";
+    const activity = (_a = get("timer_activity")) != null ? _a : kind === "meeting" ? "meeting" : "work";
+    const rawLabel = get("timer_label");
+    const label = rawLabel ? String(JSON.parse(rawLabel)) : "";
+    const rawBack = get("timer_back");
+    const back = rawBack ? JSON.parse(String(JSON.parse(rawBack))) : null;
+    return { path, title, start, kind, activity, label, back };
   } catch (e) {
     return null;
   }
+}
+function sumTimeLog(content) {
+  const lines = content.split("\n");
+  const start = lines.findIndex((l) => l.trim() === "## Time Log");
+  if (start === -1) return 0;
+  let total = 0;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (HEADING.test(lines[i])) break;
+    const m = /^\s*- .*\[mins:: (\d+)\]/.exec(lines[i]);
+    if (m) total += parseInt(m[1], 10);
+  }
+  return total;
+}
+function parseCheckboxes(content) {
+  const out = [];
+  let heading = "";
+  let inCode = false;
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^\s*(```|~~~)/.test(l)) {
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) continue;
+    const h2 = /^#{1,6}\s+(.*)$/.exec(l);
+    if (h2) {
+      heading = h2[1].trim();
+      continue;
+    }
+    const m = /^(\s*)(?:[-*+]|\d+[.)])\s+\[([ xX])\]\s+(\S.*)$/.exec(l);
+    if (m) out.push({ line: i, text: m[3].trim(), done: m[2] !== " ", heading, indent: m[1].length });
+  }
+  return out;
+}
+function setCheckbox(content, line, text, done) {
+  const lines = content.split("\n");
+  const l = lines[line];
+  if (l === void 0) return null;
+  const m = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\]\s+)(\S.*)$/.exec(l);
+  if (!m || m[4].trim() !== text) return null;
+  lines[line] = `${m[1]}${done ? "x" : " "}${m[3]}${m[4]}`;
+  return lines.join("\n");
+}
+function plainText(s) {
+  return s.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2").replace(/\[\[([^\]]+)\]\]/g, "$1").replace(/\*\*|__/g, "");
+}
+function dueOf(s) {
+  const m = /📅\s*(\d{4}-\d\d-\d\d)/.exec(s);
+  return m ? m[1] : null;
 }
 
 // src/ui.ts
@@ -418,12 +503,23 @@ function renderScore(root, s) {
       h(row, "div", "wos-row-value", fmtDur(mins));
     }
   }
+  if (s.kinds.length) {
+    h(proj, "div", "wos-panel-title wos-gap", "This week by activity");
+    const topK = s.kinds[0][1];
+    for (const [name, mins] of s.kinds) {
+      const row = h(proj, "div", "wos-row");
+      h(row, "div", "wos-row-name", name);
+      const track = h(row, "div", "wos-row-track");
+      h(track, "div", "wos-row-bar").style.width = `${Math.round(mins / topK * 100)}%`;
+      h(row, "div", "wos-row-value", fmtDur(mins));
+    }
+  }
   if (s.doneToday.length) {
     h(proj, "div", "wos-panel-title wos-gap", "Finished today");
     for (const d of s.doneToday) h(proj, "div", "wos-done", `\u2705 ${d}`);
   }
 }
-function renderMenu(root, status, items, onPick) {
+function renderMenu(root, status, items, onPick, version = "") {
   root.textContent = "";
   root.classList.add("wos-menu");
   h(root, "div", "wos-menu-status", status);
@@ -442,7 +538,66 @@ function renderMenu(root, status, items, onPick) {
       b.addEventListener("click", () => onPick(it));
     }
   }
-  h(root, "div", "wos-menu-foot", "Press the letter, or tap. Esc closes.");
+  h(root, "div", "wos-menu-foot", `Press the letter, or tap. Esc closes.${version ? ` \xB7 add-on version ${version}` : ""}`);
+}
+function renderTaskList(root, today, sections, footer) {
+  root.textContent = "";
+  root.classList.add("wos-tasks");
+  for (const sec of sections) {
+    const count = sec.groups.reduce((n, g) => n + g.rows.length, 0);
+    h(root, "div", "wos-tasks-title", `${sec.title} \xB7 ${count}`);
+    if (count === 0) {
+      h(root, "div", "wos-empty", sec.empty);
+      continue;
+    }
+    for (const g of sec.groups) {
+      if (g.rows.length === 0) continue;
+      const box = h(root, "div", "wos-panel wos-task-group");
+      h(box, "div", "wos-panel-title", g.name);
+      for (const r of g.rows) {
+        const row = h(box, "div", "wos-task-row" + (r.done ? " is-done" : ""));
+        const cb = h(row, "input", "task-list-item-checkbox wos-task-check");
+        cb.type = "checkbox";
+        cb.checked = r.done;
+        cb.setAttribute("aria-label", `Mark "${r.title}" ${r.done ? "not done" : "done"}`);
+        cb.addEventListener("click", (e) => {
+          e.preventDefault();
+          r.onToggle();
+        });
+        const text = h(row, "button", "wos-task-text");
+        text.type = "button";
+        h(text, "span", "wos-task-name", r.title);
+        if (r.sub) h(text, "span", "wos-task-sub", r.sub);
+        text.addEventListener("click", () => r.onOpen());
+        if (r.due) h(row, "span", "wos-task-due" + (r.due < today ? " is-late" : r.due === today ? " is-today" : ""), r.due === today ? "today" : r.due);
+      }
+    }
+  }
+  if (footer) root.appendChild(footer);
+}
+function renderActivity(root, kinds, placeholder, onPick) {
+  root.textContent = "";
+  root.classList.add("wos-activity");
+  const input = h(root, "input", "wos-activity-input");
+  input.type = "text";
+  input.placeholder = placeholder;
+  input.setAttribute("aria-label", "What exactly (optional)");
+  h(root, "div", "wos-menu-group", "Tap what kind of work it is (Enter = the first one)");
+  const grid = h(root, "div", "wos-menu-grid");
+  kinds.forEach((k, i) => {
+    const b = h(grid, "button", "wos-menu-item");
+    b.type = "button";
+    h(b, "span", "wos-kind-emoji", k.emoji);
+    h(b, "span", "wos-menu-label", k.label);
+    b.addEventListener("click", () => onPick(i, input.value.trim()));
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      onPick(0, input.value.trim());
+    }
+  });
+  return input;
 }
 
 // src/main.ts
@@ -452,21 +607,27 @@ var F = {
   inbox: "00 Inbox/Inbox.md",
   archive: "99 Archive",
   now: "00 Home/Now.md",
-  daily: "01 Daily",
+  daily: "01 Journal",
   tasksFile: "02 Tasks/Tasks.md",
   looseTasks: "02 Tasks/Task Notes",
   projects: "03 Projects",
   projectsIndex: "03 Projects/Projects Index.md",
-  weekly: "04 Reviews/Weekly",
-  meetings: "07 People/Meetings",
+  allTasks: "02 Tasks/All Tasks.md",
+  history: "00 Home/File History.md",
+  weekly: "01 Journal",
+  meetings: "06 People/Meetings",
   templates: "90 Templates"
 };
 var TIME_LOG = "## Time Log";
+var LEGACY_DAILY = "01 Daily";
+var LEGACY_REVIEWS = ["04 Reviews/Weekly", "04 Reviews/Monthly", "04 Reviews/Quarterly", "04 Reviews/Yearly"];
+var DATE_NAME = /^\d{4}-\d\d-\d\d$/;
 var INBOX_ITEMS = "## Items";
 var OTHER = "Other (type a name)";
 var NONE = "No project";
 var TO_INBOX = "Inbox (decide later)";
 var SAMPLE_MARK = "(sample)";
+var GATHER = "## 2 Gather";
 var DEFAULTS = {
   dailyGoalMins: 240,
   capMins: 180,
@@ -548,8 +709,11 @@ ${TIME_LOG}
 %% week:end %%
 `
 };
+function toMins(ms) {
+  return ms < 15e3 ? 0 : Math.max(1, Math.round(ms / 6e4));
+}
 function fill(tpl, vars) {
-  return tpl.replace(/\{\{(\w+)\}\}/g, (m, k) => k in vars ? vars[k] : m);
+  return tpl.replace(/\{\{(\w+(?::[^}]*)?)\}\}/g, (m, k) => k in vars ? vars[k] : m);
 }
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -609,6 +773,33 @@ var PickModal = class extends import_obsidian.FuzzySuggestModal {
     this.onPick(item);
   }
 };
+var PICKABLE = KINDS.filter((k) => k.id !== "interrupt");
+var ActivityModal = class extends import_obsidian.Modal {
+  constructor(app, heading, onPick, onSkip) {
+    super(app);
+    this.heading = heading;
+    this.onPick = onPick;
+    this.onSkip = onSkip;
+    this.picked = false;
+  }
+  onOpen() {
+    this.titleEl.setText(this.heading);
+    const input = renderActivity(this.contentEl, PICKABLE.map((k) => ({ emoji: k.emoji, label: k.label })), "What exactly? (optional, e.g. read the error logs)", (i, text) => {
+      if (this.picked) return;
+      this.picked = true;
+      this.close();
+      this.onPick(PICKABLE[i].id, text);
+    });
+    window.setTimeout(() => input.focus(), 0);
+  }
+  onClose() {
+    this.contentEl.empty();
+    if (!this.picked) {
+      this.picked = true;
+      this.onSkip();
+    }
+  }
+};
 var ForgotModal = class extends import_obsidian.Modal {
   constructor(app, title, mins, onPick) {
     super(app);
@@ -641,10 +832,11 @@ var ForgotModal = class extends import_obsidian.Modal {
   }
 };
 var MenuModal = class extends import_obsidian.Modal {
-  constructor(app, status, items) {
+  constructor(app, status, items, version = "") {
     super(app);
     this.status = status;
     this.items = items;
+    this.version = version;
   }
   onOpen() {
     this.titleEl.setText("Work OS");
@@ -652,7 +844,7 @@ var MenuModal = class extends import_obsidian.Modal {
       this.close();
       item.run();
     };
-    renderMenu(this.contentEl, this.status, this.items, pick);
+    renderMenu(this.contentEl, this.status, this.items, pick, this.version);
     for (const item of this.items) {
       this.scope.register([], item.key, () => {
         pick(item);
@@ -674,6 +866,9 @@ var WorkOSLogger = class extends import_obsidian.Plugin {
     this.statusEl = null;
     this.dayCache = /* @__PURE__ */ new Map();
     this.boards = /* @__PURE__ */ new Set();
+    this.taskLists = /* @__PURE__ */ new Set();
+    this.showAll = /* @__PURE__ */ new WeakMap();
+    this.listTimer = null;
     this.refreshTimer = null;
   }
   async onload() {
@@ -695,9 +890,14 @@ var WorkOSLogger = class extends import_obsidian.Plugin {
     for (const item of this.menuItems()) {
       this.addCommand({ id: item.id, name: item.label, callback: () => item.run() });
     }
+    this.addCommand({ id: "flatten-daily", name: "Move journal notes into 01 Journal", callback: () => void this.flattenDailies() });
     this.registerMarkdownCodeBlockProcessor("work-os", (_src, el) => {
       this.boards.add(el);
       void this.paint(el);
+    });
+    this.registerMarkdownCodeBlockProcessor("work-os-tasks", (_src, el) => {
+      this.taskLists.add(el);
+      void this.paintTaskList(el);
     });
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
@@ -717,21 +917,32 @@ var WorkOSLogger = class extends import_obsidian.Plugin {
     this.registerEvent(this.app.vault.on("modify", (file) => this.onChanged(file.path)));
     this.addSettingTab(new LoggerSettings(this.app, this));
     this.app.workspace.onLayoutReady(() => {
+      this.registerEvent(this.app.vault.on("create", (file) => {
+        if (file instanceof import_obsidian.TFile) window.setTimeout(() => void this.onCreated(file), 1500);
+      }));
       void (async () => {
+        var _a2;
         await this.loadRunning();
         await this.refreshInbox();
         await this.refreshAll();
         const r = this.running;
         if (r) new import_obsidian.Notice(`\u25B6 Timer still running on "${r.title}" since ${hhmm(new Date(r.start))}`);
+        const nested = this.nestedDailies().length;
+        if (nested) {
+          const n = new import_obsidian.Notice(`${nested} journal note${nested === 1 ? " is" : "s are"} still in old folders.
+Click here to move them all into ${F.daily}.`, 0);
+          (_a2 = n.noticeEl) == null ? void 0 : _a2.addEventListener("click", () => void this.flattenDailies());
+        }
       })();
       window.setTimeout(() => this.checkHotkeys(true), 4e3);
     });
   }
   /** Something changed on disk, possibly because sync brought it from the other device. */
   onChanged(path) {
+    if (path.endsWith(".md") && path !== F.now) this.scheduleListRefresh();
     if (path === F.now) void this.loadRunning().then(() => this.renderStatus());
     else if (path.startsWith(F.inboxFolder + "/")) void this.refreshInbox().then(() => this.scheduleRefresh());
-    else if (path.startsWith(F.daily + "/")) {
+    else if (this.isDaily(path)) {
       this.dayCache.delete(path);
       this.scheduleRefresh();
     }
@@ -743,23 +954,188 @@ var WorkOSLogger = class extends import_obsidian.Plugin {
       void this.refreshAll();
     }, 600);
   }
+  scheduleListRefresh() {
+    if (this.taskLists.size === 0) return;
+    if (this.listTimer !== null) window.clearTimeout(this.listTimer);
+    this.listTimer = window.setTimeout(() => {
+      this.listTimer = null;
+      void this.paintTaskLists();
+    }, 700);
+  }
+  // ---------- all tasks in one place ----------
+  async paintTaskLists() {
+    for (const el of Array.from(this.taskLists)) {
+      if (!el.isConnected) this.taskLists.delete(el);
+      else await this.paintTaskList(el);
+    }
+  }
+  async paintTaskList(el) {
+    var _a;
+    try {
+      const showAll = (_a = this.showAll.get(el)) != null ? _a : false;
+      const sections = await this.collectTasks(showAll);
+      const foot = el.ownerDocument.createElement("div");
+      foot.className = "wos-tasks-foot";
+      const b = foot.ownerDocument.createElement("button");
+      b.type = "button";
+      b.textContent = showAll ? "Hide routine checklists" : "Show routine checklists too";
+      b.addEventListener("click", () => {
+        this.showAll.set(el, !showAll);
+        void this.paintTaskList(el);
+      });
+      foot.appendChild(b);
+      renderTaskList(el, this.today(), sections, foot);
+    } catch (e) {
+      console.error("Work OS Logger: task list", e);
+      el.textContent = "The task list could not be drawn. See the developer console.";
+    }
+  }
+  /** Open task notes, plus every unticked checkbox in every note. Routine checklists are hidden unless asked for. */
+  async collectTasks(showAll) {
+    var _a, _b, _c, _d;
+    const files = this.app.vault.getMarkdownFiles().filter((f) => !f.path.startsWith(F.templates + "/") && !f.path.startsWith(F.archive + "/") && f.path !== F.now);
+    const taskNames = new Set(files.filter((f) => this.fm(f).type === "task").map((f) => f.basename));
+    const byProject = /* @__PURE__ */ new Map();
+    const noteGroups = [];
+    const routine = (f, type, heading) => this.isDaily(f.path) && /^(Shutdown|Habits)$/i.test(heading) || type === "task" || type === "project-learning" || type === "project-explain" || /^Clean-up$/i.test(heading);
+    for (const f of files) {
+      const fm = this.fm(f);
+      if (fm.type === "task" && fm.status !== "done") {
+        const project = (_a = this.projectOf(f)) != null ? _a : NONE;
+        const spent = Number(fm.actual_mins) || 0;
+        const status = String((_b = fm.status) != null ? _b : "todo");
+        const row = {
+          key: f.path,
+          title: f.basename,
+          sub: `${status}${spent ? ` \xB7 ${fmtDur(spent)} spent` : ""}${((_c = this.running) == null ? void 0 : _c.path) === f.path ? " \xB7 \u25B6 timing now" : ""}`,
+          due: fm.due ? String(fm.due).slice(0, 10) : null,
+          done: false,
+          onToggle: () => void this.finishTaskFile(f),
+          onOpen: () => void this.openFile(f)
+        };
+        const list = (_d = byProject.get(project)) != null ? _d : [];
+        list.push(row);
+        byProject.set(project, list);
+      }
+      const content = await this.app.vault.cachedRead(f);
+      if (!/\[ \]/.test(content)) continue;
+      const rows = [];
+      for (const it of parseCheckboxes(content)) {
+        if (it.done) continue;
+        const only = /^\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/.exec(it.text.trim());
+        if (only && taskNames.has(only[1])) continue;
+        if (!showAll && routine(f, fm.type, it.heading)) continue;
+        rows.push({
+          key: `${f.path}:${it.line}`,
+          title: plainText(it.text.replace(/📅\s*\d{4}-\d\d-\d\d/, "").trim()),
+          sub: it.heading,
+          due: dueOf(it.text),
+          done: false,
+          onToggle: () => void this.toggleCheckbox(f, it.line, it.text),
+          onOpen: () => void this.openAt(f, it.line)
+        });
+      }
+      if (rows.length === 0) continue;
+      const daily = this.isDaily(f.path);
+      noteGroups.push({ group: { name: daily ? `Day ${f.basename}` : f.basename, rows }, sort: daily ? `0-${f.basename}` : `1-${f.basename}` });
+    }
+    for (const rows of byProject.values()) rows.sort((a, b) => {
+      var _a2, _b2, _c2, _d2;
+      return ((_a2 = a.due) != null ? _a2 : "9999") < ((_b2 = b.due) != null ? _b2 : "9999") ? -1 : ((_c2 = a.due) != null ? _c2 : "9999") > ((_d2 = b.due) != null ? _d2 : "9999") ? 1 : a.title < b.title ? -1 : 1;
+    });
+    const projectGroups = Array.from(byProject.entries()).sort((a, b) => a[0] === NONE ? 1 : b[0] === NONE ? -1 : a[0] < b[0] ? -1 : 1).map(([name, rows]) => ({ name, rows }));
+    noteGroups.sort((a, b) => {
+      const da = a.sort.startsWith("0-"), db = b.sort.startsWith("0-");
+      if (da && db) return a.sort < b.sort ? 1 : -1;
+      if (da !== db) return da ? -1 : 1;
+      return a.sort < b.sort ? -1 : 1;
+    });
+    return [
+      { title: "Task notes (tick = finished)", empty: "No open task notes. Menu \u2192 T makes one.", groups: projectGroups },
+      { title: "Checkboxes in your notes", empty: "No open checkboxes anywhere.", groups: noteGroups.map((g) => g.group) }
+    ];
+  }
+  async toggleCheckbox(file, line, text) {
+    let ok = false;
+    await this.edit(file, (c) => {
+      const next = setCheckbox(c, line, text, true);
+      if (next === null) return c;
+      ok = true;
+      return next;
+    });
+    new import_obsidian.Notice(ok ? `\u2714 Ticked in ${file.basename}: ${plainText(text)}` : "That line was changed meanwhile, so nothing was ticked. The list has been refreshed.");
+    await this.paintTaskLists();
+  }
+  async openAt(file, line) {
+    await this.app.workspace.getLeaf(false).openFile(file, { eState: { line } });
+  }
+  /** Makes a notice that opens a note (at a line) when clicked. */
+  noticeOpening(text, file, findLine, ms = 9e3) {
+    const n = new import_obsidian.Notice(`${text}
+Click here to open it.`, ms);
+    const el = n.noticeEl;
+    el == null ? void 0 : el.addEventListener("click", () => {
+      void (async () => {
+        const lines = (await this.app.vault.read(file)).split("\n");
+        const at = findLine ? lines.lastIndexOf(findLine) : -1;
+        await this.openAt(file, at >= 0 ? at : lines.length - 1);
+      })();
+    });
+  }
+  // ---------- file history: every new file is listed, and notes get a created date ----------
+  async onCreated(file) {
+    var _a;
+    if (!this.file(file.path)) return;
+    const skip = [F.now, F.history, F.inbox];
+    if (skip.includes(file.path) || file.path.startsWith(F.templates + "/") || file.path.startsWith(".")) return;
+    const now = /* @__PURE__ */ new Date();
+    let type = file.extension === "md" ? "note" : file.extension;
+    if (file.extension === "md") {
+      await this.app.fileManager.processFrontMatter(file, (m) => {
+        if (!m.created) m.created = `${ymd(now)} ${hhmm(now)}`;
+        if (!m.type) m.type = "note";
+        type = String(m.type);
+      });
+    }
+    const name = file.extension === "md" ? file.basename : file.name;
+    const link = `[[${name}]]`;
+    const folder = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "vault root";
+    const line = `- ${ymd(now)} ${hhmm(now)} \xB7 ${link} \xB7 ${folder} \xB7 ${type}`;
+    const hist = (_a = this.file(F.history)) != null ? _a : await this.createNote(F.history, "# File History\n\n## Log\n");
+    await this.edit(hist, (c) => {
+      if (c.includes(`\xB7 ${link} \xB7`)) return c;
+      const i = c.indexOf("## Log");
+      if (i === -1) return c.replace(/\s+$/, "") + `
+
+## Log
+${line}
+`;
+      const lineEnd = c.indexOf("\n", i);
+      const at = lineEnd === -1 ? c.length : lineEnd + 1;
+      return c.slice(0, at) + line + "\n" + c.slice(at);
+    });
+  }
   // ---------- menu ----------
   menuItems() {
     const r = this.running;
     const item = (key, id, group, label, run, hint) => ({ key, id, group, label, hint, run: () => void run() });
     return [
-      item("s", "toggle-timer", "Timer", r ? "Stop the timer" : "Start timer on this note", () => this.toggle(), r ? `logs ${r.title}` : void 0),
+      item("s", "toggle-timer", "Timer", r ? "Stop the timer" : "Start timer on this note", () => this.toggle(), r ? `logs ${r.title}` : "asks what you are doing"),
       item("t", "new-task", "Timer", "New task", () => this.newTask(), "type a name, timer starts"),
+      item("e", "step-done", "Timer", "Next step", () => this.stepDone(), r ? "logs this step, asks what is next" : "starts the timer if it is off"),
+      item("b", "back", "Timer", "Back to what I was doing", () => this.goBack(), (r == null ? void 0 : r.back) ? `back to ${r.back.title}` : "after an interruption"),
       item("r", "resume-task", "Timer", "Resume a task", () => this.resumeTask(), "pick from open tasks"),
       item("d", "finish-task", "Timer", "Finish this task", () => this.finishTask()),
       item("m", "start-meeting", "Timer", "Start a meeting", () => this.startMeeting()),
       item("l", "log-forgotten", "Timer", "Log time I forgot", () => this.logForgotten(), "pick how long"),
       item("z", "undo-last-log", "Timer", "Undo the last time log", () => this.undoLast()),
-      item("i", "capture-inbox", "Capture", "Capture to Inbox", () => this.captureInbox(), "one line, timer keeps running"),
+      item("i", "interrupted", "Capture", "Interrupted", () => this.interrupted(), "note it for later, or deal with it now"),
       item("p", "process-inbox", "Capture", `Clear the Inbox${this.inboxCount ? ` (${this.inboxCount})` : ""}`, () => this.processInbox()),
       item("v", "capture-clipboard", "Capture", "Save copied text", () => this.captureClipboard(), "to a project or the Inbox"),
       item("u", "copy-status", "Report", "Copy today's status", () => this.copyStatus()),
       item("w", "weekly-report", "Report", "Build this week's report", () => this.weeklyReport()),
+      item("a", "all-tasks", "Go to", "All tasks in one list", () => this.openPath(F.allTasks), "task notes and every checkbox"),
+      item("f", "file-history", "Go to", "File history", () => this.openPath(F.history), "every new file, newest first"),
       item("o", "open-today", "Go to", "Today's note", () => this.openToday()),
       item("h", "open-home", "Go to", "Home (scoreboard)", () => this.openPath(F.home)),
       item("n", "new-project", "Go to", "New project", () => this.newProject()),
@@ -771,7 +1147,7 @@ var WorkOSLogger = class extends import_obsidian.Plugin {
     const r = this.running;
     const inbox = this.inboxCount ? ` \xB7 \u{1F4E5} ${this.inboxCount} in Inbox` : "";
     const status = r ? `\u25B6 ${r.title} \xB7 ${fmtDur(Math.max(0, Math.round((Date.now() - r.start) / 6e4)))}${inbox}` : `Nothing is being timed \xB7 today ${fmtDur(this.todayTotal)}${inbox}`;
-    new MenuModal(this.app, status, this.menuItems()).open();
+    new MenuModal(this.app, status, this.menuItems(), this.manifest.version).open();
   }
   /** Reports any other command that uses the same key as the menu. Uses Obsidian internals, so it fails softly. */
   checkHotkeys(quietIfOk) {
@@ -852,8 +1228,10 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
   async openToday() {
     await this.openFile(await this.ensureDaily(this.today()));
   }
+  /** A daily note: named like 2026-11-19, in 01 Journal (or the old 01 Daily folder). */
   isDaily(path) {
-    return path.startsWith(F.daily + "/");
+    const name = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+    return (path.startsWith(F.daily + "/") || path.startsWith(LEGACY_DAILY + "/")) && DATE_NAME.test(name);
   }
   fm(file) {
     var _a, _b;
@@ -877,13 +1255,52 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
   pickProject(placeholder, extra, cb) {
     new PickModal(this.app, [...extra, ...this.projects()], (x) => x, placeholder, cb).open();
   }
+  /** Daily notes live flat in one folder: 01 Journal/2026-11-19.md (the same place Periodic Notes uses). */
   dailyPath(date) {
-    return `${F.daily}/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`;
+    return `${F.daily}/${date}.md`;
   }
+  /** Today's note wherever it is (an older note may still sit in a year/month subfolder), else a new flat one. */
   async ensureDaily(date) {
     var _a;
     const path = this.dailyPath(date);
-    return (_a = this.file(path)) != null ? _a : this.createNote(path, fill(await this.tpl("Daily"), { date, title: date }));
+    const found = (_a = this.file(path)) != null ? _a : this.app.vault.getMarkdownFiles().find((f) => f.basename === date && this.isDaily(f.path));
+    return found != null ? found : this.createNote(path, fill(await this.tpl("Daily"), { date, title: date }));
+  }
+  /** Journal notes not yet in 01 Journal: daily notes in year/month subfolders or in 01 Daily, and old weekly/monthly/quarterly/yearly notes. */
+  nestedDailies() {
+    return this.app.vault.getMarkdownFiles().filter(
+      (f) => this.isDaily(f.path) && f.path !== this.dailyPath(f.basename) || LEGACY_REVIEWS.some((folder) => f.path.startsWith(folder + "/"))
+    );
+  }
+  /** Moves every journal note into 01 Journal and removes the folders left empty. Links keep working. */
+  async flattenDailies() {
+    let moved = 0;
+    const skipped = [];
+    for (const f of this.nestedDailies()) {
+      const target = `${F.daily}/${f.name}`;
+      if (this.file(target)) {
+        skipped.push(f.basename);
+        continue;
+      }
+      await this.app.fileManager.renameFile(f, target);
+      this.dayCache.delete(f.path);
+      moved++;
+    }
+    const removeEmpty = async (path, keep) => {
+      const folder = this.app.vault.getAbstractFileByPath(path);
+      if (!(folder instanceof import_obsidian.TFolder)) return;
+      for (const c of [...folder.children]) if (c instanceof import_obsidian.TFolder) await removeEmpty(c.path, false);
+      const after = this.app.vault.getAbstractFileByPath(path);
+      if (keep || !(after instanceof import_obsidian.TFolder)) return;
+      if (after.children.every((c) => c instanceof import_obsidian.TFile && c.name === ".gitkeep")) await this.app.vault.delete(after, true);
+    };
+    await removeEmpty(F.daily, true);
+    await removeEmpty(LEGACY_DAILY, false);
+    for (const folder of LEGACY_REVIEWS) await removeEmpty(folder, false);
+    await this.refreshAll();
+    new import_obsidian.Notice(`Moved ${moved} journal note${moved === 1 ? "" : "s"} into ${F.daily}.${skipped.length ? `
+Left in place (a note with the same date already exists): ${skipped.join(", ")}` : ""}`, 1e4);
+    return moved;
   }
   // ---------- numbers: always rebuilt from the notes ----------
   async loadDays() {
@@ -892,7 +1309,7 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
     const files = this.app.vault.getMarkdownFiles();
     const days = {};
     for (const f of files) {
-      if (!this.isDaily(f.path) || !/^\d{4}-\d\d-\d\d$/.test(f.basename)) continue;
+      if (!this.isDaily(f.path)) continue;
       if (this.fm(f).sample === true) continue;
       let d = this.dayCache.get(f.path);
       if (!d) {
@@ -940,7 +1357,7 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
     const inbox = this.inboxCount > 0 ? ` \xB7 \u{1F4E5} ${this.inboxCount}` : "";
     if (r) {
       const mins = Math.max(0, Math.round((Date.now() - r.start) / 6e4));
-      this.statusEl.setText(`\u25B6 ${r.title} \xB7 ${fmtDur(mins)}${inbox}`);
+      this.statusEl.setText(`\u25B6 ${kindOf(r.activity).emoji} ${r.label ? r.label + " \xB7 " : ""}${r.title} \xB7 ${fmtDur(mins)}${inbox}`);
     } else {
       this.statusEl.setText(`\u23F1 Today ${fmtDur(this.todayTotal)}${inbox}`);
     }
@@ -1045,7 +1462,7 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
       return;
     }
     if (action === 0 || action === 1) {
-      await this.createTask(name, project != null ? project : null, { start: action === 0, open: action === 0, asked: clean });
+      await this.createTask(name, project != null ? project : null, { start: action === 0, open: action === 0, asked: clean, ask: action === 0 });
     } else if (action === 2) {
       const list = this.file(F.tasksFile);
       if (list) await this.edit(list, (c) => insertUnderHeading(c, "## Next (this week)", `- [ ] ${clean}`));
@@ -1089,7 +1506,13 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
       if (f.path.startsWith(F.templates + "/")) continue;
       const text = await this.app.vault.read(f);
       if (!text.includes(SAMPLE_MARK) && !Array.from(names).some((n) => text.includes(`[[${n}`))) continue;
-      await this.edit(f, (c) => c.split("\n").filter((l) => !(/^\s*[-*|]/.test(l) && isSampleLine(l))).join("\n"));
+      await this.edit(f, (c) => {
+        let inCode = false;
+        return c.split("\n").filter((l) => {
+          if (/^\s*(```|~~~)/.test(l)) inCode = !inCode;
+          return inCode || !(/^\s*[-*|]/.test(l) && isSampleLine(l));
+        }).join("\n");
+      });
       if (this.isDaily(f.path)) await this.stampDaily(f);
     }
     await this.refreshInbox();
@@ -1106,25 +1529,54 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
       new import_obsidian.Notice("Open the note you are working on, then start the timer.");
       return;
     }
-    await this.startTimer(f);
+    await this.startTimer(f, "work", { ask: true });
   }
-  async startTimer(file, kind = "work") {
+  /**
+   * Starts timing a note. With ask, a "What are you doing?" box follows; the clock already runs from the moment
+   * of starting, and the answer is attached when picked.
+   */
+  async startTimer(file, kind = "work", opts = {}) {
+    var _a, _b, _c, _d;
     const r = this.running;
     if (r) {
-      if (r.path === file.path) {
+      if (r.path === file.path && !opts.back) {
         new import_obsidian.Notice(`\u25B6 Already timing "${r.title}"`);
         return;
       }
-      await this.stopTimer({ quiet: true });
+      await this.stopTimer({ quiet: true, at: opts.at });
     }
-    await this.setRunning({ path: file.path, title: file.basename, start: Date.now(), kind });
+    const activity = kind === "meeting" ? "meeting" : (_a = opts.activity) != null ? _a : "work";
+    await this.setRunning({ path: file.path, title: file.basename, start: (_b = opts.at) != null ? _b : Date.now(), kind, activity, label: (_c = opts.label) != null ? _c : "", back: (_d = opts.back) != null ? _d : null });
     const fm = this.fm(file);
-    if (fm.type === "task" && fm.status === "todo") {
+    if (fm.type === "task" && (fm.status === "todo" || fm.status === "waiting")) {
       await this.app.fileManager.processFrontMatter(file, (m) => {
         m.status = "doing";
       });
     }
-    new import_obsidian.Notice(`\u25B6 Started: ${file.basename}`);
+    if (opts.ask && kind !== "meeting") this.askActivity(`Started on "${file.basename}". What are you doing?`);
+    else new import_obsidian.Notice(`\u25B6 Started: ${file.basename} \xB7 ${kindOf(activity).emoji} ${opts.label || kindOf(activity).label}`);
+  }
+  /** Attaches "what I am doing" to the running timer without changing its start. */
+  askActivity(heading) {
+    var _a;
+    const startedAt = (_a = this.running) == null ? void 0 : _a.start;
+    new ActivityModal(
+      this.app,
+      heading,
+      (activity, label) => void this.setActivity(activity, label, startedAt),
+      () => {
+        var _a2, _b;
+        return new import_obsidian.Notice(`\u25B6 Timing as ${kindOf((_a2 = this.running) == null ? void 0 : _a2.activity).emoji} ${kindOf((_b = this.running) == null ? void 0 : _b.activity).label}`);
+      }
+    ).open();
+  }
+  async setActivity(activity, label, startedAt) {
+    await this.loadRunning();
+    const r = this.running;
+    if (!r || startedAt !== void 0 && r.start !== startedAt) return;
+    await this.setRunning({ ...r, activity, label: label.replace(/\s+/g, " ").trim() });
+    const k = kindOf(activity);
+    new import_obsidian.Notice(`\u25B6 ${k.emoji} ${label || k.label} \xB7 ${r.title}`);
   }
   async requestStop(withNote) {
     const r = this.running;
@@ -1134,8 +1586,14 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
     }
     const mins = Math.round((Date.now() - r.start) / 6e4);
     const finish = (override) => {
-      if (withNote) new PromptModal(this.app, "What did you do? (a few words)", (note) => void this.stopTimer({ note, mins: override })).open();
-      else void this.stopTimer({ mins: override });
+      void (async () => {
+        if (withNote) {
+          new PromptModal(this.app, "What did you do? (a few words)", (note) => void this.stopTimer({ note, mins: override }).then(() => this.offerBack(r))).open();
+          return;
+        }
+        await this.stopTimer({ mins: override });
+        this.offerBack(r);
+      })();
     };
     if (mins > this.store.settings.capMins) {
       new ForgotModal(this.app, r.title, mins, (picked) => {
@@ -1146,21 +1604,114 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
     }
     finish();
   }
+  /** After an interruption is stopped: one tap to go back to the paused task. */
+  offerBack(r) {
+    const back = r.back;
+    if (!back) return;
+    const yes = `Back to: ${back.title} (timer restarts)`;
+    new PickModal(this.app, [yes, "No, leave the timer stopped"], (x) => x, "Interruption logged. Go back?", (pick) => {
+      if (pick === yes) void this.resumeBack(back);
+    }).open();
+  }
+  async resumeBack(back) {
+    const f = this.file(back.path);
+    if (!f) {
+      new import_obsidian.Notice(`Could not find "${back.title}" any more.`);
+      return;
+    }
+    await this.openFile(f);
+    await this.startTimer(f, "work", { activity: back.activity, label: back.label });
+  }
+  async goBack() {
+    await this.loadRunning();
+    const r = this.running;
+    if (!(r == null ? void 0 : r.back)) {
+      new import_obsidian.Notice("Nothing was paused by an interruption. To pick any task: Menu \u2192 R.");
+      return;
+    }
+    const back = r.back;
+    await this.stopTimer({});
+    await this.resumeBack(back);
+  }
+  /** Menu → I: note it for later (timer keeps going), or deal with it now (this task pauses, interruption time is logged). */
+  interrupted() {
+    const later = "Note it for later (keep working)";
+    const now = "Deal with it now (pause what I am doing)";
+    new PickModal(this.app, [later, now], (x) => x, "Interrupted. What do you want to do?", (pick) => {
+      if (pick === later) this.captureInbox();
+      else void this.interruptNow();
+    }).open();
+  }
+  async interruptNow(label = "", at = Date.now()) {
+    var _a, _b, _c;
+    await this.loadRunning();
+    const r = this.running;
+    const back = r && r.activity !== "interrupt" ? { path: r.path, title: r.title, activity: (_a = r.activity) != null ? _a : "work", label: (_b = r.label) != null ? _b : "" } : (_c = r == null ? void 0 : r.back) != null ? _c : null;
+    if (r) await this.stopTimer({ at, quiet: false });
+    const daily = await this.ensureDaily(ymd(new Date(at)));
+    await this.setRunning({ path: daily.path, title: "Interruption", start: at, kind: "work", activity: "interrupt", label, back });
+    if (label) return;
+    new PromptModal(this.app, "What is it? (optional, Esc to skip)", (v) => void this.setActivity("interrupt", v, at)).open();
+    new import_obsidian.Notice(`\u26A1 Interruption timing started.${back ? `
+"${back.title}" is paused. Press Menu \u2192 S when done; you will be offered to go back.` : ""}`, 9e3);
+  }
   async discard() {
     await this.setRunning(null);
     new import_obsidian.Notice("Timer cleared. Nothing logged.");
   }
   async stopTimer(opts = {}) {
-    var _a, _b;
+    var _a, _b, _c;
     const r = this.running;
     if (!r) return;
-    const mins = (_a = opts.mins) != null ? _a : Math.round((Date.now() - r.start) / 6e4);
+    const end = (_a = opts.at) != null ? _a : Date.now();
+    const mins = (_b = opts.mins) != null ? _b : toMins(end - r.start);
     await this.setRunning(null);
     if (mins < 1) {
-      if (!opts.quiet) new import_obsidian.Notice("Under 1 minute. Nothing logged.");
+      if (!opts.quiet) new import_obsidian.Notice("Less than 15 seconds. Nothing logged.");
       return;
     }
-    await this.logSession(r, mins, (_b = opts.note) != null ? _b : "", !!opts.quiet);
+    await this.logSession(r, mins, (_c = opts.note) != null ? _c : "", !!opts.quiet);
+  }
+  /** Menu → E: log the step that just ended, keep the clock going, ask what comes next. */
+  async stepDone() {
+    await this.loadRunning();
+    const r = this.running;
+    if (!r) {
+      const f = this.app.workspace.getActiveFile();
+      if (!f) {
+        new import_obsidian.Notice("No timer is running and no note is open. Open your task (Menu \u2192 R) or make one (Menu \u2192 T).", 9e3);
+        return;
+      }
+      await this.startTimer(f, "work", { ask: true });
+      return;
+    }
+    const endAt = Date.now();
+    const logged = await this.nextStep(r, endAt);
+    if (logged) this.askActivity(`Step logged. What are you doing next on "${r.title}"?`);
+  }
+  /** Logs the running step up to endAt and keeps timing the same note from endAt. Returns false if nothing changed. */
+  async nextStep(r, endAt) {
+    await this.loadRunning();
+    const cur = this.running;
+    if (!cur || cur.path !== r.path || cur.start !== r.start) {
+      new import_obsidian.Notice("The timer was changed meanwhile (maybe on your other device). Nothing logged.");
+      return false;
+    }
+    const mins = toMins(endAt - r.start);
+    if (mins < 1) {
+      new import_obsidian.Notice("Less than 15 seconds since this step started, so nothing was logged. The timer keeps going.", 8e3);
+      return false;
+    }
+    const doLog = async (m) => {
+      await this.setRunning({ ...r, start: endAt, label: "" });
+      if (m !== null) await this.logSession({ ...r, start: endAt - m * 6e4 }, m, "", false);
+    };
+    if (mins > this.store.settings.capMins) {
+      new ForgotModal(this.app, r.title, mins, (picked) => void doLog(picked).then(() => this.askActivity("What are you doing next?"))).open();
+      return false;
+    }
+    await doLog(mins);
+    return true;
   }
   /** For when the timer was never started: pick how long, it is logged on the open note ending now. */
   logForgotten() {
@@ -1185,7 +1736,7 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
     this.dayCache.delete(daily.path);
   }
   async logSession(r, mins, rawNote, quiet) {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f;
     const start = new Date(r.start);
     const end = new Date(r.start + mins * 6e4);
     const date = ymd(start);
@@ -1194,23 +1745,27 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
     const file = this.file(r.path);
     const timedDaily = this.isDaily(r.path);
     const project = file && !timedDaily ? this.projectOf(file) : null;
-    const title = timedDaily ? "General work" : file ? file.basename : r.title;
-    const taskLine = `- ${date} ${range} [mins:: ${mins}]${note ? " " + note : ""}`;
-    const mark = r.kind === "meeting" ? `${MEETING_MARK} ` : "";
-    const links = timedDaily ? "General work" : `${mark}[[${title}]]${project && project !== title ? ` \xB7 [[${project}]]` : ""}`;
-    const dailyLine = `- ${range} [mins:: ${mins}] ${links}${note ? " \u2014 " + note : ""}`;
+    const k = kindOf((_a = r.activity) != null ? _a : r.kind === "meeting" ? "meeting" : "work");
+    const title = timedDaily ? k.id === "interrupt" ? "Interruption" : "General work" : file ? file.basename : r.title;
+    const what = [(_b = r.label) != null ? _b : "", note].filter(Boolean).join(" \u2014 ");
+    const taskLine = `- ${date} ${range} [mins:: ${mins}] ${k.emoji}${what ? " " + what : ""}`;
+    const links = timedDaily ? title : `[[${title}]]${project && project !== title ? ` \xB7 [[${project}]]` : ""}`;
+    const dailyLine = `- ${range} [mins:: ${mins}] ${k.emoji} ${links}${what ? " \u2014 " + what : ""}`;
     const taskPath = file && !timedDaily ? file.path : null;
     const s = this.store;
     const before = await this.loadDays();
+    let dailyAt = this.dailyPath(date);
     try {
       if (file && taskPath) {
         await this.edit(file, (c) => insertUnderHeading(c, TIME_LOG, taskLine));
+        const spent = sumTimeLog(await this.app.vault.read(file));
         await this.app.fileManager.processFrontMatter(file, (m) => {
-          m.actual_mins = (Number(m.actual_mins) || 0) + mins;
+          m.actual_mins = spent;
           m.last_worked = date;
         });
       }
       const daily = await this.ensureDaily(date);
+      dailyAt = daily.path;
       await this.edit(daily, (c) => insertUnderHeading(c, TIME_LOG, dailyLine));
       await this.stampDaily(daily);
     } catch (e) {
@@ -1218,20 +1773,23 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
       new import_obsidian.Notice("Logger: could not write the time into a note. Nothing was counted. Try again.", 1e4);
       return;
     }
-    s.lastLog = { date, mins, title, taskPath, taskLine, dailyPath: this.dailyPath(date), dailyLine };
+    s.lastLog = { date, mins, title, taskPath, taskLine, dailyPath: dailyAt, dailyLine };
     await this.save();
     const days = await this.refreshAll();
     if (quiet) return;
     const goal = s.settings.dailyGoalMins;
-    const dayBefore = (_b = (_a = before[date]) == null ? void 0 : _a.total) != null ? _b : 0;
-    const dayNow = (_d = (_c = days[date]) == null ? void 0 : _c.total) != null ? _d : 0;
+    const dayBefore = (_d = (_c = before[date]) == null ? void 0 : _c.total) != null ? _d : 0;
+    const dayNow = (_f = (_e = days[date]) == null ? void 0 : _e.total) != null ? _f : 0;
     const st = streak(days, this.today(), s.settings.skipWeekends);
     const lines = [`\u2714 ${fmtDur(mins)} logged \xB7 ${title}`, `Today ${fmtDur(dayNow)} of ${fmtDur(goal)} \xB7 \u{1F525} ${st}-day streak`];
     if (dayBefore < goal && dayNow >= goal) lines.push("\u{1F3AF} Daily goal reached!");
     const lvBefore = level(totalAll(before)).level;
     const lvNow = level(totalAll(days)).level;
     if (lvNow > lvBefore) lines.push(`\u2B06 Level ${lvNow}!`);
-    new import_obsidian.Notice(lines.join("\n"), 7e3);
+    lines[0] = `\u2714 ${fmtDur(mins)} \xB7 ${k.emoji} ${what || k.label} \xB7 ${title}`;
+    lines.push(taskPath ? `Written at the bottom of "${title}" (Time Log) and in today's note.` : "Written in today's note (Time Log).");
+    if (file && taskPath) this.noticeOpening(lines.join("\n"), file, taskLine);
+    else this.noticeOpening(lines.join("\n"), await this.ensureDaily(date), dailyLine);
   }
   async undoLast() {
     const l = this.store.lastLog;
@@ -1242,8 +1800,9 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
     const task = l.taskPath ? this.file(l.taskPath) : null;
     if (task) {
       await this.edit(task, (c) => removeExactLine(c, l.taskLine, true));
+      const spent = sumTimeLog(await this.app.vault.read(task));
       await this.app.fileManager.processFrontMatter(task, (m) => {
-        m.actual_mins = Math.max(0, (Number(m.actual_mins) || 0) - l.mins);
+        m.actual_mins = spent;
       });
     }
     const daily = this.file(l.dailyPath);
@@ -1264,13 +1823,14 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
       const active = this.app.workspace.getActiveFile();
       const here = active ? this.projectOf(active) : null;
       if (here && this.projects().includes(here)) {
-        void this.createTask(name, here);
+        void this.createTask(name, here, { ask: true });
         return;
       }
-      this.pickProject("Which project?", [NONE], (p) => void this.createTask(name, p === NONE ? null : p));
+      this.pickProject("Which project?", [NONE], (p) => void this.createTask(name, p === NONE ? null : p, { ask: true }));
     }).open();
   }
   async createTask(rawName, project, opts = {}) {
+    var _a;
     const { start = true, open = true, asked = "" } = opts;
     const date = this.today();
     const folder = project ? `${F.projects}/${project}/Tasks` : F.looseTasks;
@@ -1288,7 +1848,7 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
       if (list) await this.edit(list, (c) => insertUnderHeading(c, home ? "## Tasks" : "## Next (this week)", box));
     }
     if (open) await this.openFile(file);
-    if (start) await this.startTimer(file);
+    if (start) await this.startTimer(file, "work", { ask: (_a = opts.ask) != null ? _a : false });
     else new import_obsidian.Notice(`Task saved for later: ${name}`);
     return file;
   }
@@ -1313,17 +1873,20 @@ Change one of them in Settings \u2192 Hotkeys.`, 2e4);
     new PickModal(this.app, tasks, label, "Resume which task?", (f) => {
       void (async () => {
         await this.openFile(f);
-        await this.startTimer(f);
+        await this.startTimer(f, "work", { ask: true });
       })();
     }).open();
   }
   async finishTask() {
-    var _a, _b;
     const file = this.app.workspace.getActiveFile();
     if (!file || this.fm(file).type !== "task") {
-      new import_obsidian.Notice("Open the task note you finished first (menu \u2192 R lists your open tasks).");
+      new import_obsidian.Notice("Open the task note you finished first (Menu \u2192 R lists your open tasks).");
       return;
     }
+    await this.finishTaskFile(file);
+  }
+  async finishTaskFile(file) {
+    var _a, _b;
     if (((_a = this.running) == null ? void 0 : _a.path) === file.path) await this.stopTimer({ quiet: true });
     const date = this.today();
     await this.app.fileManager.processFrontMatter(file, (m) => {
@@ -1402,26 +1965,40 @@ Last step: fill "Explain it" (5 short lines).`, 8e3);
     } catch (e) {
     }
     if (!text) {
-      new import_obsidian.Notice("Nothing copied (or Obsidian cannot read the clipboard). Copy the message first.");
+      new import_obsidian.Notice("Nothing copied (or Obsidian cannot read the clipboard). Copy the message or answer first.");
       return;
     }
+    const sources = ["Message or chat", "AI answer (check before trusting)", "Email", "Document or web page", "Meeting", "Other"];
+    new PickModal(this.app, sources, (x) => x, "Where is this from?", (src) => void this.placeCaptured(text, src.replace(/ \(.*\)$/, ""))).open();
+  }
+  /** Full text goes to the project's Info & Messages; the open task gets a one-line link to it. */
+  async placeCaptured(text, source) {
     const active = this.app.workspace.getActiveFile();
+    const task = active && this.fm(active).type === "task" ? active : null;
     const here = active ? this.projectOf(active) : null;
+    if (task) {
+      await this.appendToTask(task, text, source);
+      return;
+    }
     if (here && this.projects().includes(here)) {
-      await this.appendInfo(here, text);
+      await this.appendInfo(here, text, false, source, null);
       return;
     }
     this.pickProject("Save the copied text where?", [TO_INBOX], (p) => {
-      if (p === TO_INBOX) void this.addToInbox(text);
-      else void this.appendInfo(p, text);
+      if (p === TO_INBOX) void this.addToInbox(`${source}: ${text}`);
+      else void this.appendInfo(p, text, false, source, null);
     });
   }
-  async appendInfo(project, text, quiet = false) {
+  stamp() {
+    const now = /* @__PURE__ */ new Date();
+    return `${ymd(now)} ${hhmm(now)}`;
+  }
+  async appendInfo(project, text, quiet = false, source = "", task = null) {
     const path = `${F.projects}/${project}/${project} - Info & Messages.md`;
     const file = await this.createNote(path, fill(await this.tpl("Project Info & Messages"), { project, title: project, date: this.today() }));
     const quoted = text.split("\n").map((l) => `> ${l}`).join("\n");
-    const now = /* @__PURE__ */ new Date();
-    const entry = `### ${ymd(now)} ${hhmm(now)}
+    const when = this.stamp();
+    const entry = `### ${when}${source ? ` \xB7 ${source}` : ""}${task ? ` \xB7 [[${task.basename}]]` : ""}
 ${quoted}
 `;
     await this.edit(file, (c) => {
@@ -1436,7 +2013,21 @@ ${entry}`;
       const at = lineEnd === -1 ? c.length : lineEnd + 1;
       return c.slice(0, at) + "\n" + entry + c.slice(at);
     });
-    if (!quiet) new import_obsidian.Notice(`Saved to ${project} - Info & Messages`);
+    if (task) {
+      const flat = oneLine(text);
+      const preview = flat.length > 60 ? flat.slice(0, 60) + "\u2026" : flat;
+      const line = `- ${when} \xB7 ${source || "Saved"} \u2192 [[${file.basename}]]: ${preview}`;
+      await this.edit(task, (c) => insertUnderHeading(c, GATHER, line));
+    }
+    if (!quiet) this.noticeOpening(`Added to "${file.basename}", under Log.`, file, null, 7e3);
+  }
+  /** A task with no project keeps the copied text inside its own Gather section. */
+  async appendToTask(task, text, source) {
+    const quoted = text.split("\n").map((l) => `    > ${l}`).join("\n");
+    const head = `- ${this.stamp()} \xB7 ${source}:`;
+    await this.edit(task, (c) => insertUnderHeading(c, GATHER, `${head}
+${quoted}`));
+    this.noticeOpening(`Added to "${task.basename}", under 2 Gather.`, task, head, 7e3);
   }
   // ---------- reports ----------
   async copyStatus() {
@@ -1459,7 +2050,7 @@ ${entry}`;
     const ws = weekStart(this.today());
     const label = isoWeekLabel(ws);
     const path = `${F.weekly}/${label}.md`;
-    const file = await this.createNote(path, fill(await this.tpl("Weekly Review"), { date: ws, title: label }));
+    const file = await this.createNote(path, fill(await this.tpl("Weekly Review"), { date: ws, title: label, "monday:YYYY-MM-DD": ws }));
     const block = buildWeekBlock(await this.loadDays(), ws);
     await this.edit(file, (c) => replaceAutoBlock(c, "week", block));
     await this.openFile(file);

@@ -1,8 +1,8 @@
 ---
 type: weekly
-week_of: {{date}}
+week_of: {{monday:YYYY-MM-DD}}
 ---
-# Week {{title}} (starts {{date}})
+# Week {{title}} (starts {{monday:YYYY-MM-DD}})
 
 ## Numbers (press Menu → W to refresh)
 %% week:start %%
@@ -28,4 +28,4 @@ week_of: {{date}}
 ## Clean-up
 - [ ] [[Tasks]] reviewed
 - [ ] Each active project has a `next_action`
-- [ ] One line added to [[Company Map]] or [[Business Observations]]
+- [ ] One line added to [[Company Map]] or [[Work Observations]]

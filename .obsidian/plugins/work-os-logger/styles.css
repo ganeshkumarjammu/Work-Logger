@@ -40,7 +40,7 @@
 }
 .wos-menu-group { font-size: var(--font-ui-smaller, 12px); color: var(--text-muted); margin-top: 8px; }
 .wos-menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
-.wos-menu button.wos-menu-item {
+.wos-menu button.wos-menu-item, .wos-activity button.wos-menu-item {
   display: flex; align-items: center; gap: 10px; justify-content: flex-start; text-align: left;
   height: auto; min-height: 44px; padding: 8px 10px; white-space: normal; cursor: pointer;
 }
@@ -52,3 +52,27 @@
 .wos-menu-text { display: flex; flex-direction: column; min-width: 0; }
 .wos-menu-hint { font-size: var(--font-ui-smaller, 12px); color: var(--text-muted); }
 .wos-menu-foot { font-size: var(--font-ui-smaller, 12px); color: var(--text-faint); margin-top: 6px; }
+
+/* All tasks list */
+.wos-tasks { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; }
+.wos-tasks-title { font-weight: 600; margin-top: 6px; }
+.wos-task-group { padding: 8px 12px; }
+.wos-task-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; min-height: 32px; }
+.wos-task-row input.wos-task-check { flex: none; margin: 0; cursor: pointer; }
+.wos-tasks button.wos-task-text {
+  all: unset; flex: 1; min-width: 0; cursor: pointer; display: flex; flex-direction: column; padding: 2px 0;
+}
+.wos-tasks button.wos-task-text:hover .wos-task-name { text-decoration: underline; }
+.wos-tasks button.wos-task-text:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; border-radius: 3px; }
+.wos-task-name { overflow-wrap: anywhere; }
+.wos-task-sub { font-size: var(--font-ui-smaller, 12px); color: var(--text-muted); }
+.wos-task-row.is-done .wos-task-name { text-decoration: line-through; color: var(--text-muted); }
+.wos-task-due { flex: none; font-size: var(--font-ui-smaller, 12px); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.wos-task-due.is-today { color: var(--interactive-accent); font-weight: 600; }
+.wos-task-due.is-late { color: var(--text-error); font-weight: 600; }
+.wos-tasks-foot { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+
+/* "What are you doing?" */
+.wos-activity { display: flex; flex-direction: column; gap: 6px; }
+.wos-activity-input { width: 100%; }
+.wos-kind-emoji { flex: none; width: 24px; text-align: center; font-size: 18px; }

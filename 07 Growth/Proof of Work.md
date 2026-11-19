@@ -16,7 +16,7 @@ Format: `YYYY-MM-DD — What I did → the result (number if possible) → who c
 - 
 
 ## Hard problems solved
-See `05 Knowledge/Issues Solved`
+See `04 Knowledge/Issues Solved`
 
 ## Skills gained
 See [[Skills Map]]

@@ -79,6 +79,17 @@ export function renderScore(root: HTMLElement, s: Score): void {
       h(row, "div", "wos-row-value", fmtDur(mins));
     }
   }
+  if (s.kinds.length) {
+    h(proj, "div", "wos-panel-title wos-gap", "This week by activity");
+    const topK = s.kinds[0][1];
+    for (const [name, mins] of s.kinds) {
+      const row = h(proj, "div", "wos-row");
+      h(row, "div", "wos-row-name", name);
+      const track = h(row, "div", "wos-row-track");
+      h(track, "div", "wos-row-bar").style.width = `${Math.round((mins / topK) * 100)}%`;
+      h(row, "div", "wos-row-value", fmtDur(mins));
+    }
+  }
   if (s.doneToday.length) {
     h(proj, "div", "wos-panel-title wos-gap", "Finished today");
     for (const d of s.doneToday) h(proj, "div", "wos-done", `✅ ${d}`);
@@ -93,7 +104,7 @@ export interface MenuItem {
   run: () => void;
 }
 
-export function renderMenu(root: HTMLElement, status: string, items: MenuItem[], onPick: (item: MenuItem) => void): void {
+export function renderMenu(root: HTMLElement, status: string, items: MenuItem[], onPick: (item: MenuItem) => void, version = ""): void {
   root.textContent = "";
   root.classList.add("wos-menu");
   h(root, "div", "wos-menu-status", status);
@@ -112,5 +123,87 @@ export function renderMenu(root: HTMLElement, status: string, items: MenuItem[],
       b.addEventListener("click", () => onPick(it));
     }
   }
-  h(root, "div", "wos-menu-foot", "Press the letter, or tap. Esc closes.");
+  h(root, "div", "wos-menu-foot", `Press the letter, or tap. Esc closes.${version ? ` · add-on version ${version}` : ""}`);
+}
+
+export interface TaskRow {
+  key: string;
+  title: string;
+  sub: string;
+  due: string | null;
+  done: boolean;
+  onToggle: () => void;
+  onOpen: () => void;
+}
+
+export interface TaskGroup {
+  name: string;
+  rows: TaskRow[];
+}
+
+export function renderTaskList(root: HTMLElement, today: string, sections: { title: string; empty: string; groups: TaskGroup[] }[], footer: HTMLElement | null): void {
+  root.textContent = "";
+  root.classList.add("wos-tasks");
+  for (const sec of sections) {
+    const count = sec.groups.reduce((n, g) => n + g.rows.length, 0);
+    h(root, "div", "wos-tasks-title", `${sec.title} · ${count}`);
+    if (count === 0) {
+      h(root, "div", "wos-empty", sec.empty);
+      continue;
+    }
+    for (const g of sec.groups) {
+      if (g.rows.length === 0) continue;
+      const box = h(root, "div", "wos-panel wos-task-group");
+      h(box, "div", "wos-panel-title", g.name);
+      for (const r of g.rows) {
+        const row = h(box, "div", "wos-task-row" + (r.done ? " is-done" : ""));
+        const cb = h(row, "input", "task-list-item-checkbox wos-task-check");
+        cb.type = "checkbox";
+        cb.checked = r.done;
+        cb.setAttribute("aria-label", `Mark "${r.title}" ${r.done ? "not done" : "done"}`);
+        cb.addEventListener("click", (e) => {
+          e.preventDefault();
+          r.onToggle();
+        });
+        const text = h(row, "button", "wos-task-text");
+        text.type = "button";
+        h(text, "span", "wos-task-name", r.title);
+        if (r.sub) h(text, "span", "wos-task-sub", r.sub);
+        text.addEventListener("click", () => r.onOpen());
+        if (r.due) h(row, "span", "wos-task-due" + (r.due < today ? " is-late" : r.due === today ? " is-today" : ""), r.due === today ? "today" : r.due);
+      }
+    }
+  }
+  if (footer) root.appendChild(footer);
+}
+
+export interface KindChoice {
+  emoji: string;
+  label: string;
+}
+
+/** "What are you doing?" — one tap on a kind; a description is optional. */
+export function renderActivity(root: HTMLElement, kinds: KindChoice[], placeholder: string, onPick: (index: number, text: string) => void): HTMLInputElement {
+  root.textContent = "";
+  root.classList.add("wos-activity");
+  const input = h(root, "input", "wos-activity-input");
+  input.type = "text";
+  input.placeholder = placeholder;
+  input.setAttribute("aria-label", "What exactly (optional)");
+  h(root, "div", "wos-menu-group", "Tap what kind of work it is (Enter = the first one)");
+  const grid = h(root, "div", "wos-menu-grid");
+  kinds.forEach((k, i) => {
+    const b = h(grid, "button", "wos-menu-item");
+    b.type = "button";
+    h(b, "span", "wos-kind-emoji", k.emoji);
+    h(b, "span", "wos-menu-label", k.label);
+    b.addEventListener("click", () => onPick(i, input.value.trim()));
+  });
+  input.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      onPick(0, input.value.trim());
+    }
+  });
+  return input;
 }

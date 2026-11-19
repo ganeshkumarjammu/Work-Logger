@@ -32,6 +32,7 @@ next_action: Send the invitation
 ## Tasks
 - [x] [[Sample - Book the venue]] ✅ 2026-01-06
 - [ ] [[Sample - Send the invitation]]
+- [ ] [[Sample - Prepare the agenda]]
 
 ## Decisions
 | Date | Decision | Why |
